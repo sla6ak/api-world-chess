@@ -26,6 +26,7 @@
         "cross-env": "^7.0.3",
         "dotenv": "^16.0.1",
         "express": "4.17.1",
+        "express-ws": "^5.0.2",
         "joi": "^17.6.0",
         "jsonwebtoken": "^8.5.1",
         "mongoose": "^6.3.4",
