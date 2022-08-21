@@ -1,4 +1,4 @@
-const { app } = require("./config/serverConfig");
+const { app, webSocketServer, server } = require("./config/serverConfig");
 
 const routerAuth = require("./routers/auth.routes");
 
@@ -13,18 +13,15 @@ app.use((err, req, res, next) => {
     res.status(status).json({ message });
 });
 
-app.use(function (req, res, next) {
-    console.log("middleware");
-    req.testing = "testing";
-    return next();
-});
-
-app.ws("/echo", function (ws, req) {
-    ws.on("message", function (msg) {
-        ws.send(msg);
-        console.log(msg);
+webSocketServer.on("connection", (ws) => {
+    ws.on("message", (m) => {
+        console.log("new message", m);
+        webSocketServer.clients.forEach((client) => client.send(m));
     });
-    console.log("socket", req.testing);
+
+    ws.on("error", (e) => ws.send(e));
+
+    ws.send("Hi there, I am a WebSocket server");
 });
 
-module.exports = { app };
+module.exports = { app, webSocketServer, server };
