@@ -1,8 +1,12 @@
 const express = require("express");
+const http = require("http");
+const WebSocket = require("ws");
 const logger = require("morgan");
 const cors = require("cors");
 const app = express();
 const bodyParser = require("body-parser");
+const server = http.createServer(app);
+const webSocketServer = new WebSocket.Server({ server });
 
 const formatsLogger = app.get("env") === "development" ? "dev" : "short";
 app.use(
@@ -20,8 +24,7 @@ const optionCors = {
 };
 app.use(cors(optionCors));
 app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
-// app.use(express.json());
+app.use(express.json());
 app.use(express.static("public"));
 
-module.exports = app;
+module.exports = { app, webSocketServer, server };
