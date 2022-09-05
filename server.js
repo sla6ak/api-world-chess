@@ -1,7 +1,6 @@
 require("dotenv").config();
 const mongoose = require("mongoose");
 const { server } = require("./src/app");
-// const { v4: uuidv4 } = require("uuid");
 
 const { DB_HOST, PORT = 5000 } = process.env;
 
