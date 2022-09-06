@@ -2,6 +2,7 @@ const { Schema, model } = require("mongoose");
 
 const schema = new Schema(
     {
+        statusGame: { type: String, enum: ["open", "close"], default: "open" },
         position: { type: Array, default: ["rnbqkbnrpppppppp88888888888888888888888888888888PPPPPPPPRNBQKBNR"] },
         typeGame: { type: String, default: "standart" },
         timeControl: { type: Number, default: 180 },

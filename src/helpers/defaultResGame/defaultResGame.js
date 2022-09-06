@@ -1,9 +1,7 @@
-const statusCode = require("../errors/statusCode");
-
-const defaultResGame = (status = 200, message = statusCode[status]) => {
+const defaultResGame = () => {
     const data = {
         idGame: "",
-        position: "",
+        position: [],
         playerWite: "",
         playerBlack: "",
         reitingWite: 800,
@@ -12,8 +10,9 @@ const defaultResGame = (status = 200, message = statusCode[status]) => {
         timeBlack: "",
         move: true,
         resultGame: "",
-        status,
-        message,
+        status: 200,
+        message: "",
+        error: "",
     };
 
     return data;

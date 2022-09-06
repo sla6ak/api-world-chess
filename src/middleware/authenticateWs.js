@@ -12,7 +12,7 @@ const authenticateWs = async (token) => {
         }
         return user;
     } catch (error) {
-        throw createError(401, "Not authorized Ws");
+        return error;
     }
 };
 

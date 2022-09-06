@@ -7,7 +7,7 @@ const defaultResponseData = (status = 200, message = statusCode[status]) => {
             email: null,
             _id: null,
             token: null,
-            currentBalance: null,
+            currentReiting: null,
         },
         status,
         message,
