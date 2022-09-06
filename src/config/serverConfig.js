@@ -27,4 +27,4 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use(express.json());
 app.use(express.static("public"));
 
-module.exports = { app, webSocketServer, server };
+module.exports = { app, webSocketServer, server, bodyParser };
