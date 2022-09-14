@@ -2,6 +2,7 @@ const GameModel = require("../models/game");
 
 class Game {
     async findCurentGame(req) {
+        console.log("findCurentGame");
         try {
             let curentGame = null;
             if (req.color === "wite") {
@@ -63,6 +64,7 @@ class Game {
                         timeControl: req.timeControl,
                         timePluse: req.timePluse,
                         statusGame: "open",
+                        idx: req.idx
                     };
                 } else if (req.color === "black") {
                     myNewGame = {
@@ -76,9 +78,11 @@ class Game {
                         timeControl: req.timeControl,
                         timePluse: req.timePluse,
                         statusGame: "open",
+                        idx: req.idx
                     };
                 }
                 const curentGame = await GameModel.create(myNewGame);
+                console.log("curentGame - ", curentGame);
                 return curentGame;
             }
         } catch (error) {
@@ -86,10 +90,11 @@ class Game {
         }
     }
 
-    async deleteGame(req) {
+    async deleteGame(_id) {
         try {
-            const deleteGame = await GameModel.findOneAndDelete({ _id: req.gameId, statusGame: "open" });
+            const deleteGame = await GameModel.findOneAndDelete({ _id, statusGame: "open" });
             console.log(deleteGame);
+            return "Game cancelled";
         } catch (error) {
             console.log(error);
         }

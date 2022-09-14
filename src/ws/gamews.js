@@ -1,9 +1,9 @@
-// const GameModel = require("../models/game");
+const GameModel = require("../models/game");
 const gameClass = require("../controllers/game");
 const defaultResGame = require("../helpers/defaultResGame/defaultResGame");
 
 const gameFindCurent = async (req) => {
-    console.log("client start app");
+    console.log("--- finding a current game, req:", req);
     const mesRes = defaultResGame();
     const myCurentGame = await gameClass.findCurentGame(req);
     if (myCurentGame) {
@@ -29,9 +29,18 @@ const gameStart = async (req) => {
     const mesRes = defaultResGame();
     const newGame = await gameClass.createGame(req);
     if (newGame) {
-        return { mesRes };
+        return { mesRes: newGame };
     }
     return { mesRes };
+};
+
+const gameStop = async (_id) => {
+    console.log("client stop game");
+    result = await gameClass.deleteGame(_id);
+    if (result) {
+        return result;
+    }
+    return "something wrong";
 };
 
 const gameCurent = async (req) => {
@@ -44,4 +53,4 @@ const gameCurent = async (req) => {
     return { mesRes };
 };
 
-module.exports = { gameStart, gameCurent, gameFindCurent };
+module.exports = { gameStart, gameStop, gameCurent, gameFindCurent };
