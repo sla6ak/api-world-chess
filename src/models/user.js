@@ -1,4 +1,9 @@
-const { Schema, model } = require("mongoose");
+const { Schema } = require("mongoose");
+const mongoose = require("mongoose");
+
+const { DB_HOST } = process.env;
+
+const usersDbConnection = mongoose.createConnection(DB_HOST, { dbName: "users_db" });
 
 const schema = new Schema(
     {
@@ -34,4 +39,4 @@ const schema = new Schema(
     }
 );
 
-module.exports = model("user", schema);
+module.exports = usersDbConnection.model("user", schema);

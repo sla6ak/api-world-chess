@@ -5,7 +5,7 @@ module.exports = {
     es2021: true,
     node: true,
   },
-  ignorePatterns: ["**/*.test.js", "frontend/generated/*"],
+  ignorePatterns: ["frontend/generated/*"],
   extends: ["standard", "prettier"],
   parserOptions: {
     ecmaVersion: 12,

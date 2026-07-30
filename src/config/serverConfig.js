@@ -1,9 +1,9 @@
 const express = require("express");
 const http = require("http");
-const WebSocket = require("ws");
 const logger = require("morgan");
 const cors = require("cors");
-const { logError } = require("../helpers/logger/logger");
+const { Server } = require("colyseus");
+const { WebSocketTransport } = require("@colyseus/ws-transport");
 const app = express();
 const bodyParser = require("body-parser");
 const server = http.createServer(app);
@@ -16,19 +16,11 @@ const allowedOrigins = [
     "https://app-world-chess.vercel.app",
 ];
 
-const webSocketServer = new WebSocket.Server({
-    server,
-    verifyClient: (info, callback) => {
-        if (!info.origin || allowedOrigins.includes(info.origin)) {
-            // eslint-disable-next-line node/no-callback-literal
-            callback(true);
-        } else {
-            logError(`WebSocket connection rejected (origin: ${info.origin})`, "Forbidden");
-            // eslint-disable-next-line node/no-callback-literal
-            callback({ code: 403, reason: "Forbidden" });
-        }
-    },
+const colyseusServer = new Server({
+    transport: new WebSocketTransport({ server }),
 });
+
+colyseusServer.define("chess_room", require("../rooms/ChessRoom"));
 
 const formatsLogger = app.get("env") === "development" ? "dev" : "short";
 app.use(
@@ -56,4 +48,4 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use(express.json());
 app.use(express.static("public"));
 
-module.exports = { app, webSocketServer, server, bodyParser };
+module.exports = { app, colyseusServer, server, bodyParser };
