@@ -5,3 +5,5 @@ npm.log
 npm.lock
 package-lock.json
 logs/
+dist/
+*.tsbuildinfo

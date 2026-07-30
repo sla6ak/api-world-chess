@@ -1,14 +1,17 @@
-const { Room } = require("colyseus");
-const GameModel = require("../models/game");
+import { Room } from "colyseus";
+import GameModel from "../models/game.js";
+import jwt from "jsonwebtoken";
 
 class ChessRoom extends Room {
+    gameData: unknown;
+
     constructor() {
         super();
         this.maxClients = 2;
         this.gameData = null;
     }
 
-    onCreate(options) {
+    onCreate(options: unknown): void {
         this.setState({
             position: [],
             move: true,
@@ -21,41 +24,52 @@ class ChessRoom extends Room {
             result: "pending",
             idGame: this.roomId,
         });
+
+        this.onMessage("startApp", (client, message) => {
+            this.handleStartApp(client, message);
+        });
+
+        this.onMessage("startGame", (client, message) => {
+            this.handleStartGame(client, message);
+        });
+
+        this.onMessage("game", (client, message) => {
+            this.handleGameMove(client, message);
+        });
     }
 
-    async onAuth(client, options) {
-        const token = options.token;
+    async onAuth(client: any, options: { token?: string }): Promise<boolean> {
+        const token = options?.token;
         if (!token) return false;
 
-        const jwt = require("jsonwebtoken");
-        const { JWT_SECRET_KEY } = process.env;
+        const { JWT_SECRET_KEY } = process.env as { JWT_SECRET_KEY: string };
 
         try {
             const decoded = jwt.verify(token, JWT_SECRET_KEY);
             client.userData = decoded;
             return true;
-        } catch (e) {
+        } catch {
             return false;
         }
     }
 
-    async onJoin(client, options) {
-        const userName = client.userData.name;
-        const userRating = client.userData.currentReiting;
+    async onJoin(client: any, options: unknown): Promise<void> {
+        const userName = client.userData?.name;
+        const userRating = client.userData?.currentReiting;
 
         if (this.state.playerWite === "") {
-            this.state.playerWite = userName;
-            this.state.reitingWite = userRating;
+            this.state.playerWite = userName ?? "";
+            this.state.reitingWite = userRating ?? 800;
             client.role = "wite";
         } else if (this.state.playerBlack === "") {
-            this.state.playerBlack = userName;
-            this.state.reitingBlack = userRating;
+            this.state.playerBlack = userName ?? "";
+            this.state.reitingBlack = userRating ?? 800;
             client.role = "black";
         }
 
         // Если оба игрока подключились — начинаем игру
         if (this.state.playerWite && this.state.playerBlack) {
-            this.lockRoom();
+            await this.lock();
 
             // Сохраняем игру в MongoDB
             this.gameData = await GameModel.findByIdAndUpdate(
@@ -63,10 +77,10 @@ class ChessRoom extends Room {
                 {
                     statusGame: "close",
                     nameWite: this.state.playerWite,
-                    ownerWite: client.userData._id,
+                    ownerWite: client.userData?._id,
                     reitingWite: this.state.reitingWite,
                     nameBlack: this.state.playerBlack,
-                    ownerBlack: client.userData._id,
+                    ownerBlack: client.userData?._id,
                     reitingBlack: this.state.reitingBlack,
                 },
                 { new: true }
@@ -74,21 +88,7 @@ class ChessRoom extends Room {
         }
     }
 
-    onMessage(client, message) {
-        switch (message.event) {
-            case "startApp":
-                this.handleStartApp(client, message);
-                break;
-            case "startGame":
-                this.handleStartGame(client, message);
-                break;
-            case "game":
-                this.handleGameMove(client, message);
-                break;
-        }
-    }
-
-    handleStartApp(client, message) {
+    handleStartApp(client: any, message: unknown): void {
         const role = client.role;
 
         if (!role) {
@@ -114,7 +114,7 @@ class ChessRoom extends Room {
         );
     }
 
-    handleStartGame(client, message) {
+    handleStartGame(client: any, message: unknown): void {
         // Отправляем всем текущую позицию
         this.broadcast(
             JSON.stringify({
@@ -134,7 +134,7 @@ class ChessRoom extends Room {
         );
     }
 
-    handleGameMove(client, message) {
+    handleGameMove(client: any, message: { position?: string[]; move?: boolean }): void {
         // Обновляем позицию в состоянии
         if (message.position) {
             this.state.position = message.position;
@@ -162,10 +162,10 @@ class ChessRoom extends Room {
         );
     }
 
-    async onLeave(client, consented) {
+    async onLeave(client: any, consented: boolean): Promise<void> {
         const role = client.role;
         const opponentRole = role === "wite" ? "black" : "wite";
-        const opponentClient = this.clients.find((c) => c.role === opponentRole);
+        const opponentClient = this.clients.find((c: any) => c.role === opponentRole);
 
         if (opponentClient) {
             opponentClient.send(
@@ -187,7 +187,7 @@ class ChessRoom extends Room {
         }
     }
 
-    async onDispose() {
+    async onDispose(): Promise<void> {
         // Финальное сохранение результата в MongoDB
         if (this.gameData) {
             await GameModel.findByIdAndUpdate(this.roomId, {
@@ -198,4 +198,4 @@ class ChessRoom extends Room {
     }
 }
 
-module.exports = ChessRoom;
+export default ChessRoom;

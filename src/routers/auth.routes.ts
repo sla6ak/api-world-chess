@@ -1,7 +1,9 @@
-const router = require("express").Router();
-const { loginValidation, signupValidation } = require("../middleware/userValidation");
-const authenticate = require("../middleware/authenticate");
-const user = require("../controllers/user");
+import { Router } from "express";
+import { loginValidation, signupValidation } from "../middleware/userValidation.js";
+import authenticate from "../middleware/authenticate.js";
+import user from "../controllers/user.js";
+
+const router = Router();
 
 router.post("/signup", signupValidation, user.addNewUser);
 
@@ -13,4 +15,4 @@ router.post("/logout", authenticate, user.logOutUser);
 
 router.delete("/delete", authenticate, user.delete);
 
-module.exports = router;
+export default router;

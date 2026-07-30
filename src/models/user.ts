@@ -1,11 +1,10 @@
-const { Schema } = require("mongoose");
-const mongoose = require("mongoose");
+import mongoose, { Schema, type ConnectOptions } from "mongoose";
 
-const { DB_HOST } = process.env;
+const { DB_HOST } = process.env as { DB_HOST: string };
 
-const usersDbConnection = mongoose.createConnection(DB_HOST, { dbName: "users_db" });
+const usersDbConnection = mongoose.createConnection(DB_HOST, { dbName: "users_db" } as ConnectOptions);
 
-const schema = new Schema(
+const userSchema = new Schema(
     {
         name: {
             type: String,
@@ -39,4 +38,4 @@ const schema = new Schema(
     }
 );
 
-module.exports = usersDbConnection.model("user", schema);
+export default usersDbConnection.model("user", userSchema);

@@ -1,18 +1,17 @@
-const UserModel = require("../models/user");
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
-const { createError } = require("../helpers/errors/createError");
+import { Request, Response, NextFunction } from "express";
+import UserModel from "../models/user.js";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import createError from "../helpers/errors/createError.js";
 
-const dotenv = require("dotenv");
-dotenv.config();
-const { JWT_SECRET_KEY } = process.env;
+const { JWT_SECRET_KEY } = process.env as { JWT_SECRET_KEY: string };
 
 class User {
-    async addNewUser(req, res, next) {
+    async addNewUser(req: Request, res: Response, next: NextFunction): Promise<void> {
         const { email, password } = req.body;
 
         try {
-            const duplicateEmail = await UserModel.findOne({ email: email });
+            const duplicateEmail = await UserModel.findOne({ email });
             if (duplicateEmail) {
                 throw createError(409, "User not created. Email is duplicate");
             }
@@ -30,7 +29,7 @@ class User {
         }
     }
 
-    async userLogin(req, res, next) {
+    async userLogin(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const { email, password } = req.body;
             const user = await UserModel.findOne({ email });
@@ -39,67 +38,68 @@ class User {
                 throw createError(401, `Email or password is wrong`);
             }
 
-            if (user.requireVerificationEmail && !user.verify) {
+            if ((user as { requireVerificationEmail?: boolean; verify?: boolean }).requireVerificationEmail &&
+                !(user as { verify?: boolean }).verify) {
                 throw createError(401, `User ${email} not verify`);
             }
 
-            const isPassword = await bcrypt.compare(password, user.password);
+            const isPassword = await bcrypt.compare(password, (user as { password: string }).password);
 
             if (!isPassword) {
                 throw createError(401, `Email or password is wrong`);
             }
 
-            const token = jwt.sign({ id: user._id }, JWT_SECRET_KEY, {
+            const token = jwt.sign({ id: (user as { _id: string })._id }, JWT_SECRET_KEY, {
                 expiresIn: "30d",
             });
 
-            await UserModel.findByIdAndUpdate(user._id, { token });
-            user.token = token;
+            await UserModel.findByIdAndUpdate((user as { _id: string })._id, { token });
+            (user as { token: string }).token = token;
 
-            return res.json({ user });
+            res.json({ user });
         } catch (error) {
             next(error);
         }
     }
 
-    async getCurrentUser(req, res, next) {
+    async getCurrentUser(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
-            const { email } = req.user;
+            const { email } = req.user as { email: string };
             const user = await UserModel.findOne({ email });
             if (!user) {
                 throw createError(404);
             }
-            return res.json({ user });
+            res.json({ user });
         } catch (error) {
             next(error);
         }
     }
 
-    async logOutUser(req, res, next) {
+    async logOutUser(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
-            const { _id } = req.user;
+            const { _id } = req.user as { _id: string };
             const user = await UserModel.findByIdAndUpdate(_id, { token: "" });
             if (!user) {
                 throw createError(404);
             }
-            return res.status(200).json({ message: "Logout success" });
+            res.status(200).json({ message: "Logout success" });
         } catch (error) {
             next(error);
         }
     }
 
-    async delete(req, res, next) {
+    async delete(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
-            const { email } = req.user;
+            const { email } = req.user as { email: string };
             const user = await UserModel.findOneAndDelete({ email });
             if (!user) {
                 throw createError(404);
             }
-            return res.json({ user });
+            res.json({ user });
         } catch (error) {
             next(error);
         }
     }
 }
 
-module.exports = new User();
+export default new User();

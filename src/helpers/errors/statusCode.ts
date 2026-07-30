@@ -1,4 +1,4 @@
-const statusCode = {
+const statusCode: Record<number, string> = {
     100: "Continue",
     101: "Switching Protocols",
     102: "Processing",
@@ -75,4 +75,4 @@ const statusCode = {
     526: "Invalid SSL Certificate",
 };
 
-module.exports = statusCode;
+export default statusCode;

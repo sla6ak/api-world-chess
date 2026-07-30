@@ -1,7 +1,8 @@
-const Joi = require("joi");
-const { createError } = require("../helpers/errors/createError");
+import Joi from "joi";
+import createError from "../helpers/errors/createError.js";
+import type { Request, Response, NextFunction } from "express";
 
-const loginValidation = (req, res, next) => {
+const loginValidation = (req: Request, res: Response, next: NextFunction): void => {
     try {
         const schema = Joi.object({
             email: Joi.string()
@@ -21,7 +22,7 @@ const loginValidation = (req, res, next) => {
     }
 };
 
-const signupValidation = (req, res, next) => {
+const signupValidation = (req: Request, res: Response, next: NextFunction): void => {
     try {
         const schema = Joi.object({
             email: Joi.string()
@@ -42,7 +43,4 @@ const signupValidation = (req, res, next) => {
     }
 };
 
-module.exports = {
-    loginValidation,
-    signupValidation,
-};
+export { loginValidation, signupValidation };

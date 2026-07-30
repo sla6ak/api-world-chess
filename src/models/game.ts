@@ -1,14 +1,18 @@
-const { Schema } = require("mongoose");
-const mongoose = require("mongoose");
+import mongoose, { Schema, type ConnectOptions } from "mongoose";
 
-const { DB_HOST } = process.env;
+const { DB_HOST } = process.env as { DB_HOST: string };
 
-const gameDbConnection = mongoose.createConnection(DB_HOST, { dbName: "game_db" });
+const gameDbConnection = mongoose.createConnection(DB_HOST, { dbName: "game_db" } as ConnectOptions);
 
-const schema = new Schema(
+const gameSchema = new Schema(
     {
         statusGame: { type: String, enum: ["open", "close"], default: "open" },
-        position: { type: Array, default: ["rnbqkbnrpppppppp88888888888888888888888888888888PPPPPPPPRNBQKBNR"] },
+        position: {
+            type: Array,
+            default: [
+                "rnbqkbnrpppppppp88888888888888888888888888888888PPPPPPPPRNBQKBNR",
+            ],
+        },
         typeGame: { type: String, default: "standart" },
         timeControl: { type: Number, default: 180 },
         timePluse: { type: Number, default: 2 },
@@ -26,7 +30,11 @@ const schema = new Schema(
         },
         date: { type: Date, default: Date.now },
         dateGameOver: { type: Date, default: Date.now },
-        result: { type: String, enum: ["pending", "1-0", "0-1", "0.5-0.5"], default: "pending" },
+        result: {
+            type: String,
+            enum: ["pending", "1-0", "0-1", "0.5-0.5"],
+            default: "pending",
+        },
     },
     {
         versionKey: false,
@@ -34,4 +42,4 @@ const schema = new Schema(
     }
 );
 
-module.exports = gameDbConnection.model("game", schema);
+export default gameDbConnection.model("game", gameSchema);

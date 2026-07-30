@@ -1,22 +1,23 @@
-const GameModel = require("../models/game");
+import GameModel from "../models/game.js";
+import type { Request } from "express";
 
 class Game {
-    async findCurentGame(req) {
+    async findCurentGame(req: Request): Promise<unknown> {
         try {
             let curentGame = null;
             if (req.color === "wite") {
                 curentGame = await GameModel.findOne({
-                    ownerWite: req.user._id,
+                    ownerWite: req.user?._id,
                     result: "pending",
                 });
             } else if (req.color === "black") {
                 curentGame = await GameModel.findOne({
-                    ownerBlack: req.user._id,
+                    ownerBlack: req.user?._id,
                     result: "pending",
                 });
             } else {
                 curentGame = await GameModel.findOne({
-                    $or: [{ ownerWite: req.user._id }, { ownerBlack: req.user._id }],
+                    $or: [{ ownerWite: req.user?._id }, { ownerBlack: req.user?._id }],
                     result: "pending",
                 });
             }
@@ -26,7 +27,7 @@ class Game {
         }
     }
 
-    async deleteGame(req) {
+    async deleteGame(req: Request): Promise<void> {
         try {
             const deleteGame = await GameModel.findOneAndDelete({
                 _id: req.gameId,
@@ -39,4 +40,4 @@ class Game {
     }
 }
 
-module.exports = new Game();
+export default new Game();
