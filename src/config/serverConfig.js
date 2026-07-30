@@ -3,10 +3,32 @@ const http = require("http");
 const WebSocket = require("ws");
 const logger = require("morgan");
 const cors = require("cors");
+const { logError } = require("../helpers/logger/logger");
 const app = express();
 const bodyParser = require("body-parser");
 const server = http.createServer(app);
-const webSocketServer = new WebSocket.Server({ server });
+
+const allowedOrigins = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+    "https://app-world-chess.vercel.app",
+];
+
+const webSocketServer = new WebSocket.Server({
+    server,
+    verifyClient: (info, callback) => {
+        if (!info.origin || allowedOrigins.includes(info.origin)) {
+            // eslint-disable-next-line node/no-callback-literal
+            callback(true);
+        } else {
+            logError(`WebSocket connection rejected (origin: ${info.origin})`, "Forbidden");
+            // eslint-disable-next-line node/no-callback-literal
+            callback({ code: 403, reason: "Forbidden" });
+        }
+    },
+});
 
 const formatsLogger = app.get("env") === "development" ? "dev" : "short";
 app.use(
@@ -18,9 +40,16 @@ app.use(
 );
 
 const optionCors = {
-    origin: "*",
-    methods: ["GET", "POST", "DELETE", "UPDATE", "PUT", "PATCH"],
-    allowedHeaders: "*",
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error("Not allowed by CORS"));
+        }
+    },
+    methods: ["GET", "POST", "DELETE", "PUT", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
 };
 app.use(cors(optionCors));
 app.use(bodyParser.urlencoded({ extended: false }));
