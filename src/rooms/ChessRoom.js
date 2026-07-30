@@ -23,8 +23,8 @@ class ChessRoom extends Room {
         });
     }
 
-    async onAuth(client, options, req) {
-        const token = req.headers.authorization?.split(" ")[1];
+    async onAuth(client, options) {
+        const token = options.token;
         if (!token) return false;
 
         const jwt = require("jsonwebtoken");
