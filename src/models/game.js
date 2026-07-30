@@ -1,4 +1,9 @@
-const { Schema, model } = require("mongoose");
+const { Schema } = require("mongoose");
+const mongoose = require("mongoose");
+
+const { DB_HOST } = process.env;
+
+const gameDbConnection = mongoose.createConnection(DB_HOST, { dbName: "game_db" });
 
 const schema = new Schema(
     {
@@ -7,16 +12,10 @@ const schema = new Schema(
         typeGame: { type: String, default: "standart" },
         timeControl: { type: Number, default: 180 },
         timePluse: { type: Number, default: 2 },
-        nameWite: {
-            type: String,
-            required: [true, "NameWite is required"],
-        },
-        reitingWite: { type: Number, required: [true, "reitingWite is required"] },
-        nameBlack: {
-            type: String,
-            required: [true, "NameBlack is required"],
-        },
-        reitingBlack: { type: Number, required: [true, "reitingBlack is required"] },
+        nameWite: { type: String, default: "" },
+        reitingWite: { type: Number, default: 800 },
+        nameBlack: { type: String, default: "" },
+        reitingBlack: { type: Number, default: 800 },
         ownerWite: {
             type: Schema.Types.ObjectId,
             ref: "user",
@@ -35,4 +34,4 @@ const schema = new Schema(
     }
 );
 
-module.exports = model("game", schema);
+module.exports = gameDbConnection.model("game", schema);
