@@ -1,8 +1,10 @@
 const { app, webSocketServer, server } = require("./config/serverConfig");
 const { v4: uuidv4 } = require("uuid");
 const clients = {};
+const gameStore = require("./games/gameStore");
 const { gameFindCurent, gameStart, gameCurent } = require("./ws/gamews");
 const { authenticateWs } = require("./middleware/authenticateWs");
+const gameClass = require("./controllers/game");
 const { logError } = require("./helpers/logger/logger");
 
 const routerAuth = require("./routers/auth.routes");
@@ -91,12 +93,34 @@ webSocketServer.on("connection", async (ws) => {
     ws.on("error", (e) => {
         logError(`WebSocket error for client ${id}`, e);
     });
-    ws.on("close", () => {
+    ws.on("close", async () => {
         console.log("client exit", id);
+        // Находим пользователя по ws
+        let disconnectedUserId = null;
         for (const [userId, clientWs] of Object.entries(clients)) {
             if (clientWs === ws) {
+                disconnectedUserId = userId;
                 delete clients[userId];
                 break;
+            }
+        }
+
+        if (disconnectedUserId) {
+            // Ищем активную игру в памяти
+            const inMemoryGame = gameStore.findByUser(disconnectedUserId);
+            if (inMemoryGame) {
+                const { gameId, state } = inMemoryGame;
+                // Сохраняем текущее состояние в MongoDB при отключении
+                try {
+                    await gameClass.saveGameOnDisconnect({
+                        gameId,
+                        position: state.position,
+                        move: state.move,
+                    });
+                    logError(`Game ${gameId} saved on disconnect of user ${disconnectedUserId}`, "disconnect");
+                } catch (e) {
+                    logError(`Error saving game ${gameId} on disconnect`, e);
+                }
             }
         }
     });
