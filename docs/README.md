@@ -6,8 +6,9 @@
 
 - **Node.js** — runtime
 - **Express 4.17** — HTTP-фреймворк
-- **Colyseus** — WebSocket-фреймворк для мультиплеерных игр (замена `ws`)
+- **Colyseus** `0.16.x` — WebSocket-фреймворк для мультиплеерных игр (замена `ws`)
 - **`@colyseus/schema` `3.0.76`** — схема сериализации состояния (одинаковая версия на клиенте и сервере)
+- **`@colyseus/ws-transport` `0.16.x`** — WebSocket-транспорт для Colyseus
 - **MongoDB + Mongoose** — база данных (два подключения: `users_db`, `game_db`)
 - **JWT** — аутентификация
 - **bcrypt** — хеширование паролей

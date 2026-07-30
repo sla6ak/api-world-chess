@@ -25,6 +25,7 @@
 | `colyseus` (сервер) | `0.16.x` | WebSocket-фреймворк |
 | `colyseus.js` (клиент) | `0.16.x` | SDK для фронтенда |
 | `@colyseus/schema` | `3.0.76` | Схема сериализации состояния |
+| `@colyseus/ws-transport` | `0.16.x` | WebSocket-транспорт |
 
 ### Подключение
 
