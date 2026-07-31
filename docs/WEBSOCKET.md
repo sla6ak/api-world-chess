@@ -158,6 +158,17 @@ export class ChessRoom extends Room<ChessState> {
 }
 ```
 
+### `cancelSearch`
+
+Отмена поиска оппонента. Отправляется, когда игрок закрывает модалку поиска. Сервер находит созданную, но не начатую игру по `gameId` и удаляет её из MongoDB.
+
+```json
+{
+  "event": "cancelSearch",
+  "gameId": "64a1b2c3d4e5f6a7b8c9d0e1"
+}
+```
+
 ### `game`
 
 Отправить ход.

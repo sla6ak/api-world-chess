@@ -318,10 +318,12 @@ class ChessRoom extends Room {
 
     /**
      * Обработчик отмены поиска
-     * Удаляет незапущенную игру из MongoDB, уведомляет обоих клиентов и закрывает комнату
+     * По ID находит созданную и не начатую игру в MongoDB, удаляет её,
+     * уведомляет обоих клиентов и закрывает комнату
      */
     async handleCancelSearch(client: any, message: unknown): Promise<void> {
         const userId = client.userData?._id;
+        const { gameId } = message as { gameId?: string } ?? {};
 
         if (!userId) {
             logError("handleCancelSearch", "userId is undefined, cannot cancel search");
@@ -331,17 +333,22 @@ class ChessRoom extends Room {
         let cancelledGameId: string | null = null;
 
         try {
-            // Находим и удаляем незапущенную игру из MongoDB по владельцу и статусу
-            try {
-                const gameToDelete = await GameModel.findOneAndDelete({
-                    statusGame: "open",
-                    $or: [{ ownerWite: userId }, { ownerBlack: userId }],
-                });
-                if (gameToDelete) {
-                    cancelledGameId = gameToDelete._id.toString();
+            // Находим и удаляем незапущенную игру из MongoDB по ID
+            if (gameId) {
+                try {
+                    const gameToDelete = await GameModel.findOneAndDelete({
+                        _id: gameId,
+                        statusGame: "open",
+                        result: "pending",
+                    });
+                    if (gameToDelete) {
+                        cancelledGameId = gameToDelete._id.toString();
+                    }
+                } catch (e) {
+                    logError("handleCancelSearch: DB delete error", e);
                 }
-            } catch (e) {
-                logError("handleCancelSearch: DB delete error", e);
+            } else {
+                logError("handleCancelSearch", "gameId is missing in cancel request");
             }
 
             // Уведомляем отменившего клиента, что поиск отменён
