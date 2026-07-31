@@ -1,4 +1,5 @@
 import GameModel from "../models/game.js";
+import { logError } from "../helpers/logger/logger.js";
 import type { Request, Response } from "express";
 
 class Game {
@@ -23,19 +24,19 @@ class Game {
             }
             return curentGame;
         } catch (error) {
-            console.log(error);
+            logError("findCurentGame", error);
+            return null;
         }
     }
 
     async deleteGame(req: Request): Promise<void> {
         try {
-            const deleteGame = await GameModel.findOneAndDelete({
+            await GameModel.findOneAndDelete({
                 _id: req.gameId,
                 statusGame: "open",
             });
-            console.log(deleteGame);
         } catch (error) {
-            console.log(error);
+            logError("deleteGame", error);
         }
     }
 
@@ -59,7 +60,7 @@ class Game {
                 game: newGame,
             });
         } catch (error) {
-            console.log(error);
+            logError("createSearchRoom", error);
             res.status(500).json({ message: "Failed to create search room" });
         }
     }

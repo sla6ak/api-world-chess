@@ -1,6 +1,7 @@
 import { Room } from "colyseus";
 import GameModel from "../models/game.js";
 import jwt from "jsonwebtoken";
+import { logError } from "../helpers/logger/logger.js";
 
 class ChessRoom extends Room {
     gameData: unknown;
@@ -82,23 +83,27 @@ class ChessRoom extends Room {
         // При подключении второго игрока — сохраняем игру в MongoDB, но НЕ стартуем автоматически
         // Игра стартует только когда оба игрока нажмут "findGame"
         if (this.state.playerWite && this.state.playerBlack) {
-            await this.lock();
+            try {
+                await this.lock();
 
-            const witeClient = this.clients.find((c: any) => c.role === "wite");
+                const witeClient = this.clients.find((c: any) => c.role === "wite");
 
-            this.gameData = await GameModel.findByIdAndUpdate(
-                this.roomId,
-                {
-                    statusGame: "close",
-                    nameWite: this.state.playerWite,
-                    ownerWite: witeClient?.userData?._id,
-                    reitingWite: this.state.reitingWite,
-                    nameBlack: this.state.playerBlack,
-                    ownerBlack: userId,
-                    reitingBlack: this.state.reitingBlack,
-                },
-                { new: true, upsert: true }
-            );
+                this.gameData = await GameModel.findByIdAndUpdate(
+                    this.roomId,
+                    {
+                        statusGame: "close",
+                        nameWite: this.state.playerWite,
+                        ownerWite: witeClient?.userData?._id,
+                        reitingWite: this.state.reitingWite,
+                        nameBlack: this.state.playerBlack,
+                        ownerBlack: userId,
+                        reitingBlack: this.state.reitingBlack,
+                    },
+                    { new: true, upsert: true }
+                );
+            } catch (e) {
+                logError("onJoin: save game to MongoDB", e);
+            }
         }
     }
 
@@ -134,71 +139,31 @@ class ChessRoom extends Room {
 
         // Если оба игрока теперь в комнате — запускаем игру
         if (this.state.playerWite && this.state.playerBlack) {
-            await this.lock();
+            try {
+                await this.lock();
 
-            const witeClient = this.clients.find((c: any) => c.role === "wite");
+                const witeClient = this.clients.find((c: any) => c.role === "wite");
 
-            // Сохраняем игру в MongoDB
-            this.gameData = await GameModel.findByIdAndUpdate(
-                this.roomId,
-                {
-                    statusGame: "close",
-                    typeGame: this.state.typeGame,
-                    timeControl: this.state.timeControl,
-                    timePluse: this.state.timePluse,
-                    nameWite: this.state.playerWite,
-                    ownerWite: witeClient?.userData?._id,
-                    reitingWite: this.state.reitingWite,
-                    nameBlack: this.state.playerBlack,
-                    ownerBlack: userId,
-                    reitingBlack: this.state.reitingBlack,
-                },
-                { new: true, upsert: true }
-            );
+                // Сохраняем игру в MongoDB
+                this.gameData = await GameModel.findByIdAndUpdate(
+                    this.roomId,
+                    {
+                        statusGame: "close",
+                        typeGame: this.state.typeGame,
+                        timeControl: this.state.timeControl,
+                        timePluse: this.state.timePluse,
+                        nameWite: this.state.playerWite,
+                        ownerWite: witeClient?.userData?._id,
+                        reitingWite: this.state.reitingWite,
+                        nameBlack: this.state.playerBlack,
+                        ownerBlack: userId,
+                        reitingBlack: this.state.reitingBlack,
+                    },
+                    { new: true, upsert: true }
+                );
 
-            // Уведомляем обоих игроков об успешном начале игры
-            this.broadcast("gameStart", {
-                idGame: this.roomId,
-                position: this.state.position,
-                playerWite: this.state.playerWite,
-                playerBlack: this.state.playerBlack,
-                reitingWite: this.state.reitingWite,
-                reitingBlack: this.state.reitingBlack,
-                timeWite: this.state.timeWite,
-                timeBlack: this.state.timeBlack,
-                move: this.state.move,
-                typeGame: this.state.typeGame,
-                timeControl: this.state.timeControl,
-                timePluse: this.state.timePluse,
-                message: "gameStart",
-            });
-        } else {
-            // Ждём второго игрока — отправляем статус поиска
-            client.send("searching", {
-                searchData: {
-                    typeGame: this.state.typeGame,
-                    timeControl: this.state.timeControl,
-                    timePluse: this.state.timePluse,
-                },
-            });
-        }
-    }
-
-    handleStartApp(client: any, message: unknown): void {
-        const role = client.role;
-
-        if (!role) {
-            client.send(
-                JSON.stringify({
-                    mesRes: { message: "not_in_game" },
-                })
-            );
-            return;
-        }
-
-        client.send(
-            JSON.stringify({
-                mesRes: {
+                // Уведомляем обоих игроков об успешном начале игры
+                this.broadcast("gameStart", {
                     idGame: this.roomId,
                     position: this.state.position,
                     playerWite: this.state.playerWite,
@@ -208,50 +173,114 @@ class ChessRoom extends Room {
                     timeWite: this.state.timeWite,
                     timeBlack: this.state.timeBlack,
                     move: this.state.move,
-                    message: "game",
-                },
-            })
-        );
+                    typeGame: this.state.typeGame,
+                    timeControl: this.state.timeControl,
+                    timePluse: this.state.timePluse,
+                    message: "gameStart",
+                });
+            } catch (e) {
+                logError("handleFindGame: start game error", e);
+            }
+        } else {
+            // Ждём второго игрока — отправляем статус поиска
+            try {
+                client.send("searching", {
+                    searchData: {
+                        typeGame: this.state.typeGame,
+                        timeControl: this.state.timeControl,
+                        timePluse: this.state.timePluse,
+                    },
+                });
+            } catch (e) {
+                logError("handleFindGame: failed to send searching status", e);
+            }
+        }
+    }
+
+    handleStartApp(client: any, message: unknown): void {
+        const role = client.role;
+
+        if (!role) {
+            try {
+                client.send(
+                    JSON.stringify({
+                        mesRes: { message: "not_in_game" },
+                    })
+                );
+            } catch (e) {
+                logError("handleStartApp: failed to send not_in_game", e);
+            }
+            return;
+        }
+
+        try {
+            client.send(
+                JSON.stringify({
+                    mesRes: {
+                        idGame: this.roomId,
+                        position: this.state.position,
+                        playerWite: this.state.playerWite,
+                        playerBlack: this.state.playerBlack,
+                        reitingWite: this.state.reitingWite,
+                        reitingBlack: this.state.reitingBlack,
+                        timeWite: this.state.timeWite,
+                        timeBlack: this.state.timeBlack,
+                        move: this.state.move,
+                        message: "game",
+                    },
+                })
+            );
+        } catch (e) {
+            logError("handleStartApp: failed to send game data", e);
+        }
     }
 
     handleStartGame(client: any, message: unknown): void {
-        // Отправляем всем текущую позицию через правильное Colyseus-событие
-        this.broadcast("game", {
-            idGame: this.roomId,
-            position: this.state.position,
-            playerWite: this.state.playerWite,
-            playerBlack: this.state.playerBlack,
-            reitingWite: this.state.reitingWite,
-            reitingBlack: this.state.reitingBlack,
-            timeWite: this.state.timeWite,
-            timeBlack: this.state.timeBlack,
-            move: this.state.move,
-            message: "game",
-        });
+        try {
+            // Отправляем всем текущую позицию через правильное Colyseus-событие
+            this.broadcast("game", {
+                idGame: this.roomId,
+                position: this.state.position,
+                playerWite: this.state.playerWite,
+                playerBlack: this.state.playerBlack,
+                reitingWite: this.state.reitingWite,
+                reitingBlack: this.state.reitingBlack,
+                timeWite: this.state.timeWite,
+                timeBlack: this.state.timeBlack,
+                move: this.state.move,
+                message: "game",
+            });
+        } catch (e) {
+            logError("handleStartGame: broadcast error", e);
+        }
     }
 
     handleGameMove(client: any, message: { position?: string[]; move?: boolean }): void {
-        // Обновляем позицию в состоянии
-        if (message.position) {
-            this.state.position = message.position;
-        }
-        if (message.move !== undefined) {
-            this.state.move = message.move;
-        }
+        try {
+            // Обновляем позицию в состоянии
+            if (message.position) {
+                this.state.position = message.position;
+            }
+            if (message.move !== undefined) {
+                this.state.move = message.move;
+            }
 
-        // Рассылаем обновление обоим игрокам через правильное Colyseus-событие
-        this.broadcast("game", {
-            idGame: this.roomId,
-            position: this.state.position,
-            playerWite: this.state.playerWite,
-            playerBlack: this.state.playerBlack,
-            reitingWite: this.state.reitingWite,
-            reitingBlack: this.state.reitingBlack,
-            timeWite: this.state.timeWite,
-            timeBlack: this.state.timeBlack,
-            move: this.state.move,
-            message: "game",
-        });
+            // Рассылаем обновление обоим игрокам через правильное Colyseus-событие
+            this.broadcast("game", {
+                idGame: this.roomId,
+                position: this.state.position,
+                playerWite: this.state.playerWite,
+                playerBlack: this.state.playerBlack,
+                reitingWite: this.state.reitingWite,
+                reitingBlack: this.state.reitingBlack,
+                timeWite: this.state.timeWite,
+                timeBlack: this.state.timeBlack,
+                move: this.state.move,
+                message: "game",
+            });
+        } catch (e) {
+            logError("handleGameMove: broadcast error", e);
+        }
     }
 
     async onLeave(client: any, consented: boolean): Promise<void> {
@@ -260,41 +289,99 @@ class ChessRoom extends Room {
         const opponentClient = this.clients.find((c: any) => c.role === opponentRole);
 
         if (opponentClient) {
-            opponentClient.send(
-                JSON.stringify({
-                    mesRes: {
-                        message: "opponent_disconnected",
-                        opponentRole: role,
-                    },
-                })
-            );
+            try {
+                opponentClient.send(
+                    JSON.stringify({
+                        mesRes: {
+                            message: "opponent_disconnected",
+                            opponentRole: role,
+                        },
+                    })
+                );
+            } catch (e) {
+                logError("onLeave: failed to send to opponent", e);
+            }
         }
 
         // Сохраняем текущее состояние в MongoDB при отключении
         if (this.gameData) {
-            await GameModel.findByIdAndUpdate(this.roomId, {
-                position: this.state.position,
-                move: this.state.move,
-            });
+            try {
+                await GameModel.findByIdAndUpdate(this.roomId, {
+                    position: this.state.position,
+                    move: this.state.move,
+                });
+            } catch (e) {
+                logError("onLeave: failed to save game state", e);
+            }
         }
     }
 
     /**
      * Обработчик отмены поиска
-     * Удаляет комнату из MongoDB и закрывает Colyseus room
+     * Удаляет незапущенную игру из MongoDB, уведомляет обоих клиентов и закрывает комнату
      */
     async handleCancelSearch(client: any, message: unknown): Promise<void> {
         const userId = client.userData?._id;
 
-        // Удаляем открытую игру из MongoDB (комната поиска)
-        await GameModel.findOneAndDelete({
-            _id: this.roomId,
-            statusGame: "open",
-            $or: [{ ownerWite: userId }, { ownerBlack: userId }],
-        });
+        if (!userId) {
+            logError("handleCancelSearch", "userId is undefined, cannot cancel search");
+            return;
+        }
 
-        // Закрываем комнату — все клиенты будут отключены
-        await this.disconnect();
+        let cancelledGameId: string | null = null;
+
+        try {
+            // Находим и удаляем незапущенную игру из MongoDB по владельцу и статусу
+            try {
+                const gameToDelete = await GameModel.findOneAndDelete({
+                    statusGame: "open",
+                    $or: [{ ownerWite: userId }, { ownerBlack: userId }],
+                });
+                if (gameToDelete) {
+                    cancelledGameId = gameToDelete._id.toString();
+                }
+            } catch (e) {
+                logError("handleCancelSearch: DB delete error", e);
+            }
+
+            // Уведомляем отменившего клиента, что поиск отменён
+            try {
+                client.send(
+                    JSON.stringify({
+                        mesRes: {
+                            message: "search_cancelled",
+                        },
+                    })
+                );
+            } catch (e) {
+                logError("handleCancelSearch: failed to notify cancelling client", e);
+            }
+
+            // Уведомляем оппонента (если он есть и ещё в комнате), что поиск отменён
+            try {
+                const opponentClient = this.clients.find((c: any) => c !== client);
+                if (opponentClient) {
+                    opponentClient.send(
+                        JSON.stringify({
+                            mesRes: {
+                                message: "search_cancelled_by_opponent",
+                            },
+                        })
+                    );
+                }
+            } catch (e) {
+                logError("handleCancelSearch: failed to notify opponent", e);
+            }
+        } catch (e) {
+            logError("handleCancelSearch: unexpected error", e);
+        }
+
+        // Закрываем комнату — отключаем всех клиентов
+        try {
+            await this.disconnect();
+        } catch (e) {
+            logError("handleCancelSearch: disconnect error", e);
+        }
     }
 
     /**
@@ -305,49 +392,61 @@ class ChessRoom extends Room {
         const role = client.role;
         if (!role) return;
 
-        // Обновляем результат в состоянии комнаты
-        this.state.result = message.result;
+        try {
+            // Обновляем результат в состоянии комнаты
+            this.state.result = message.result;
 
-        // Определяем результат для текущего клиента (от его перспективы)
-        let clientResult: "win" | "loss" | "draw";
-        if (message.result === "0.5-0.5") {
-            clientResult = "draw";
-        } else if (
-            (role === "wite" && message.result === "1-0") ||
-            (role === "black" && message.result === "0-1")
-        ) {
-            clientResult = "win";
-        } else {
-            clientResult = "loss";
-        }
+            // Определяем результат для текущего клиента (от его перспективы)
+            let clientResult: "win" | "loss" | "draw";
+            if (message.result === "0.5-0.5") {
+                clientResult = "draw";
+            } else if (
+                (role === "wite" && message.result === "1-0") ||
+                (role === "black" && message.result === "0-1")
+            ) {
+                clientResult = "win";
+            } else {
+                clientResult = "loss";
+            }
 
-        // Сохраняем в MongoDB
-        if (this.gameData) {
-            await GameModel.findByIdAndUpdate(this.roomId, {
-                result: message.result,
-                dateGameOver: new Date(),
+            // Сохраняем в MongoDB
+            if (this.gameData) {
+                try {
+                    await GameModel.findByIdAndUpdate(this.roomId, {
+                        result: message.result,
+                        dateGameOver: new Date(),
+                    });
+                } catch (e) {
+                    logError("handleGameOver: save game result error", e);
+                }
+            }
+
+            // Уведомляем обоих игроков о завершении игры
+            this.broadcast("gameOver", {
+                status: "gameover",
+                gameOverData: {
+                    result: clientResult,
+                    ratingChange: message.ratingChange,
+                    finalResult: message.result,
+                    message: "gameOver",
+                },
             });
+        } catch (e) {
+            logError("handleGameOver: unexpected error", e);
         }
-
-        // Уведомляем обоих игроков о завершении игры
-        this.broadcast("gameOver", {
-            status: "gameover",
-            gameOverData: {
-                result: clientResult,
-                ratingChange: message.ratingChange,
-                finalResult: message.result,
-                message: "gameOver",
-            },
-        });
     }
 
     async onDispose(): Promise<void> {
-        // Финальное сохранение результата в MongoDB
-        if (this.gameData) {
-            await GameModel.findByIdAndUpdate(this.roomId, {
-                result: this.state.result,
-                dateGameOver: new Date(),
-            });
+        // Финальное сохранение результата в MongoDB (только для завершённых игр, не для отменённых)
+        if (this.gameData && this.state.result !== "pending") {
+            try {
+                await GameModel.findByIdAndUpdate(this.roomId, {
+                    result: this.state.result,
+                    dateGameOver: new Date(),
+                });
+            } catch (e) {
+                logError("onDispose: failed to save game result", e);
+            }
         }
     }
 }
