@@ -285,6 +285,7 @@ class ChessRoom extends Room {
 
     async onLeave(client: any, consented: boolean): Promise<void> {
         const role = client.role;
+        const userId = client.userData?._id;
         const opponentRole = role === "wite" ? "black" : "wite";
         const opponentClient = this.clients.find((c: any) => c.role === opponentRole);
 
@@ -303,7 +304,25 @@ class ChessRoom extends Room {
             }
         }
 
-        // Сохраняем текущее состояние в MongoDB при отключении
+        // Если игра не начата (statusGame: "open") — удаляем её из MongoDB
+        // Игрок отключился во время поиска оппонента, незапущенная игра больше не нужна
+        if (userId) {
+            try {
+                const unstartedGame = await GameModel.findOneAndDelete({
+                    _id: this.roomId,
+                    statusGame: "open",
+                    result: "pending",
+                });
+                if (unstartedGame) {
+                    logError("onLeave", `Deleted unstarted game ${unstartedGame._id} for user ${userId}`);
+                    return; // Не нужно сохранять состояние — игра была удалена
+                }
+            } catch (e) {
+                logError("onLeave: failed to delete unstarted game", e);
+            }
+        }
+
+        // Сохраняем текущее состояние в MongoDB при отключении (для начатых игр)
         if (this.gameData) {
             try {
                 await GameModel.findByIdAndUpdate(this.roomId, {
