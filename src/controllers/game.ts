@@ -1,5 +1,5 @@
 import GameModel from "../models/game.js";
-import { logError } from "../helpers/logger/logger.js";
+import { logError } from "../utils/logger.js";
 import type { Request, Response } from "express";
 
 class Game {

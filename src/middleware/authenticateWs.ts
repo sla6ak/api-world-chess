@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
 import User from "../models/user.js";
-import createError from "../helpers/errors/createError.js";
+import createError from "../errors/createError.js";
 
 const { JWT_SECRET_KEY } = process.env as { JWT_SECRET_KEY: string };
 

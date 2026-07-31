@@ -1,7 +1,7 @@
 import { Room } from "colyseus";
 import GameModel from "../models/game.js";
 import jwt from "jsonwebtoken";
-import { logError } from "../helpers/logger/logger.js";
+import { logError } from "../utils/logger.js";
 
 class ChessRoom extends Room {
     gameData: unknown;
