@@ -1,78 +1,142 @@
-# Конфигурация
+# Конфигурация — api-world-chess
 
 ## Переменные окружения
 
-Файл `.env` (на основе `.env.template`):
+Файл `.env` (шаблон: `.env.template`):
 
 ```env
-DB_HOST=mongodb+srv://<user>:<password>@cluster0.example.mongodb.net/?appName=Cluster0
+DB_HOST=mongodb://localhost:27017
 PORT=5000
-JWT_SECRET_KEY=<your-secret-key>
+JWT_SECRET_KEY=your-secret-key-here
 ```
 
-| Переменная | Описание | По умолчанию |
-|-----------|---------|-------------|
-| `DB_HOST` | URI MongoDB | — (обязательна) |
-| `PORT` | Порт HTTP-сервера | `5000` |
-| `JWT_SECRET_KEY` | Секрет для подписи JWT | — (обязательна) |
+### `DB_HOST`
 
-### Подключение к базе данных
+Строка подключения к MongoDB. Используется обоими подключениями (`users_db` и `game_db`).
 
-- `users_db` — пользователи (модель `User`)
-- `game_db` — игровые сессии (модель `Game`)
-
-Обе базы создаются автоматически при первом подключении.
-
-## Логирование
-
-### HTTP (Morgan)
-
-- **Development** (`NODE_ENV=development`): формат `dev` (цветной, детальный)
-- **Production** (`NODE_ENV=production`): формат `short` (краткий)
-- 404-ответы пропускаются
-
-### WebSocket-ошибки (файловый логгер)
-
-**Файл:** `src/helpers/logger/logger.js`
-
-Все ошибки WebSocket записываются в `logs/ws-errors.log`:
-
+Примеры:
 ```
-[2024-07-30T11:09:41.865Z] [WebSocket connection rejected (origin: http://evil.com)] Error: Forbidden
-[2024-07-30T11:12:04.385Z] [WebSocket error for client abc-123] Error: ...
+mongodb://localhost:27017
+mongodb://user:password@localhost:27017
+mongodb+srv://user:password@cluster.mongodb.net
 ```
 
-Директория `logs/` создаётся автоматически.
+### `PORT`
 
-## CORS
+Порт HTTP-сервера (Express) и WebSocket-сервера (Colyseus). По умолчанию `5000`.
 
-Настроен в `src/config/serverConfig.js`:
+### `JWT_SECRET_KEY`
 
-- Разрешённые origin'ы: `localhost:3000`, `localhost:5173`, `127.0.0.1:3000`, `127.0.0.1:5173`, `app-world-chess.vercel.app`
-- Credentials: включены
-- Методы: `GET`, `POST`, `DELETE`, `PUT`, `PATCH`, `OPTIONS`
-- Заголовки: `Content-Type`, `Authorization`
+Секретный ключ для подписи и верификации JWT токенов. Должен быть длинной и сложной строкой.
 
-## Colyseus
+---
 
-Сервер использует **[Colyseus](https://docs.colyseus.io/)** — Node.js-фреймворк для мультиплеерных игр.
+## Конфигурация сервера (`src/config/serverConfig.ts`)
 
-### Проверка Origin
+### CORS
 
-Colyseus проверяет заголовок `Origin` при handshake через настройку `server` → `verifyClient`. Неразрешённые origin'ы получают 403 Forbidden.
+Разрешённые origins:
 
-### Обработка ошибок
+```ts
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:5173",
+  "http://127.0.0.1:3000",
+  "http://127.0.0.1:5173",
+  "https://app-world-chess.vercel.app",
+];
+```
 
-- `server.on("error", ...)` — глобальный обработчик ошибок Colyseus
-- `room.on("error", ...)` — обработчик ошибок отдельной комнаты
-- `room.on("unhandledException", ...)` — перехват необработанных исключений в lifecycle-методах
-- Colyseus автоматически обрабатывает парсинг сообщений, десериализацию Schema и отправку патчей
-- Ошибки WebSocket логируются в `logs/ws-errors.log`
+В режиме разработки (`NODE_ENV=development`) разрешены все `localhost` и `127.0.0.1` origins.
 
-### Reconnection
+CORS настройки:
+- **Methods:** `GET, POST, DELETE, PUT, PATCH, OPTIONS`
+- **Allowed Headers:** `Content-Type, Authorization`
+- **Credentials:** `true`
 
-Colyseus предоставляет встроенную поддержку переподключения:
+### Colyseus WebSocket
 
-- `room.allowReconnection(client, milliseconds)` — разрешает переподключение в течение указанного времени
-- При автоматическом переподключении клиент получает текущее состояние без повторной синхронизации
-- В `onReconnect` можно восстановить пользовательские данные
+Транспорт: `WebSocketTransport` (на базе `ws`).
+
+Проверка клиента (`verifyClient`):
+- Проверяет заголовок `Origin`
+- Если origin в `allowedOrigins` — разрешает
+- Если origin не разрешён — отклоняет с `403 Forbidden`
+
+### Определение комнаты
+
+```ts
+colyseusServer.define("chess_room", ChessRoom);
+```
+
+Комната `chess_room` — единственная комната на сервере.
+
+### Логирование HTTP-запросов
+
+- **Development:** формат `dev` (цветной, подробный)
+- **Production:** формат `short` (компактный)
+- Пропускает логирование 404-ответов
+
+### Middleware
+
+```ts
+app.use(cors(optionCors));
+app.use(bodyParser.urlencoded({ extended: false }));
+app.use(express.json());
+app.use(express.static("public"));
+```
+
+---
+
+## Структура проекта (файловая)
+
+```
+api-world-chess/
+├── src/
+│   ├── server.ts                  # Точка входа
+│   ├── config/
+│   │   └── serverConfig.ts        # Express + Colyseus конфигурация
+│   ├── controllers/
+│   │   ├── user.ts                # Пользователи (CRUD)
+│   │   └── game.ts                # Игровые сессии (REST)
+│   ├── middleware/
+│   │   ├── authenticate.ts        # JWT middleware для REST
+│   │   ├── authenticateWs.ts      # JWT утилита для WebSocket
+│   │   └── userValidation.ts      # Joi валидация
+│   ├── models/
+│   │   ├── user.ts                # Mongoose User model
+│   │   └── game.ts                # Mongoose Game model
+│   ├── rooms/
+│   │   └── ChessRoom.ts           # Colyseus Room
+│   ├── routers/
+│   │   ├── auth.routes.ts         # /auth/* маршруты
+│   │   └── game.routes.ts         # /game/* маршруты
+│   ├── errors/
+│   │   ├── createError.ts         # Фабрика ошибок
+│   │   ├── index.ts               # Экспорт
+│   │   └── statusCode.ts          # HTTP статус-коды
+│   ├── responses/
+│   │   ├── defaultResGame.ts      # Шаблон игрового ответа
+│   │   ├── defaultResponseData.ts # Шаблон стандартного ответа
+│   │   └── index.ts               # Экспорт
+│   ├── utils/
+│   │   ├── index.ts               # Экспорт
+│   │   └── logger.ts              # Файловый логгер WS-ошибок
+│   └── types/
+│       └── express.d.ts           # Расширения Express Request
+├── docs/
+│   ├── README.md
+│   ├── ARCHITECTURE.md
+│   ├── API.md
+│   ├── WEBSOCKET.md
+│   ├── DATABASE.md
+│   ├── CONFIG.md
+│   └── GAME.md
+├── logs/
+│   └── errors.log
+├── .env
+├── .env.template
+├── package.json
+├── tsconfig.json
+└── .gitignore
+```

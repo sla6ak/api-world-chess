@@ -11,6 +11,7 @@ class ChessRoom extends Room {
         super();
         this.maxClients = 2;
         this.gameData = null;
+        this.reconnectionTimeout = 60;
     }
 
     async onCreate(options: { gameId?: string } | undefined): Promise<void> {
@@ -290,7 +291,7 @@ class ChessRoom extends Room {
 
         // Зберігаємо стан гри в MongoDB при відключенні (для активних ігор)
         const gameId = this.state.idGame || this.roomId;
-        if (userId && this.gameData) {
+        if (userId) {
             try {
                 await GameModel.findByIdAndUpdate(gameId, {
                     position: this.state.position,
@@ -305,7 +306,7 @@ class ChessRoom extends Room {
 
     async onDispose(): Promise<void> {
         console.log("[ChessRoom:onDispose] 🧹 Room disposing | roomId:", this.roomId, "| result:", this.state.result);
-        if (this.gameData && this.state.result !== "pending") {
+        if (this.state.result !== "pending") {
             try {
                 await GameModel.findByIdAndUpdate(this.state.idGame || this.roomId, {
                     result: this.state.result,
@@ -316,7 +317,7 @@ class ChessRoom extends Room {
                 logError("onDispose: failed to save game result", e);
             }
         } else {
-            console.log("[ChessRoom:onDispose] ⏭️ No final save needed (game pending or no gameData)");
+            console.log("[ChessRoom:onDispose] ⏭️ No final save needed (game pending)");
         }
     }
 }

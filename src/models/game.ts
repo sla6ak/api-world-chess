@@ -35,6 +35,9 @@ const gameSchema = new Schema(
       enum: ["pending", "1-0", "0-1", "0.5-0.5"],
       default: "pending",
     },
+    move: { type: Boolean, default: true },
+    timeWite: { type: Number, default: 0 },
+    timeBlack: { type: Number, default: 0 },
   },
   {
     versionKey: false,

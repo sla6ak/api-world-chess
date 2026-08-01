@@ -1,45 +1,17 @@
-# WebSocket
+# WebSocket Протокол — ChessRoom
 
-## Технология
+## Подключение
 
-Сервер использует **[Colyseus](https://docs.colyseus.io/)** — Node.js-фреймворк для построения авторитарных игровых серверов с real-time state synchronization. Colyseus заменяет ручную реализацию на базе `ws` и предоставляет:
+Colyseus сервер определяет комнату `chess_room`. Клиент подключается через Colyseus client SDK:
 
-- **Rooms** — изолированные игровые сессии
-- **Schema-based State** — автоматическая синхронизация состояния с клиентами
-- **Matchmaking** — встроенный поиск оппонентов
-- **Reconnection** — автоматическое переподключение с восстановлением позиции
-- **Lifecycle hooks** — `onCreate`, `onJoin`, `onLeave`, `onDispose`
-
-## Схема состояния (Schema)
-
-Проект использует **`@colyseus/schema` версии `3.x`**.
-
-### Почему нельзя обновлять
-
-Версия `@colyseus/schema` на клиенте и сервере **должна совпадать**. Схема определяет формат сериализации/десериализации состояния при передаче по WebSocket. Несовпадение версий (например, сервер `@colyseus/schema` 4.x + клиент 3.x) приведёт к ошибкам декодирования и потере синхронизации.
-
-Текущие версии:
-
-| Пакет | Версия | Роль |
-|-------|--------|------|
-| `colyseus` (сервер) | `0.16.x` | WebSocket-фреймворк |
-| `colyseus.js` (клиент) | `0.16.x` | SDK для фронтенда |
-| `@colyseus/schema` | `3.0.76` | Схема сериализации состояния |
-| `@colyseus/ws-transport` | `0.16.x` | WebSocket-транспорт |
-
-### Подключение
-
-```
-ws://localhost:5000/
+```ts
+const client = new Colyseus.Client("ws://localhost:5000");
+const room = await client.joinOrCreate("chess_room", { token: jwtToken });
 ```
 
-Colyseus клиент подключается через SDK (`colyseus.js`). Серверный WebSocket endpoint автоматически обрабатывает handshake, синхронизацию состояния и reconnection.
+### Проверка Origin
 
-## Проверка Origin
-
-При handshake Colyseus проверяет заголовок `Origin`. Подключения с неразрешённых origin'ов отклоняются с кодом **403 Forbidden**.
-
-Разрешённые origin'ы:
+Colyseus `WebSocketTransport` проверяет заголовок `Origin` при handshake. Разрешены:
 
 - `http://localhost:3000`
 - `http://localhost:5173`
@@ -47,227 +19,272 @@ Colyseus клиент подключается через SDK (`colyseus.js`). �
 - `http://127.0.0.1:5173`
 - `https://app-world-chess.vercel.app`
 
-Все отклонённые подключения логируются в `logs/ws-errors.log`.
+В режиме разработки (`NODE_ENV=development`) разрешены все `localhost` и `127.0.0.1` origins.
 
-## Rooms
+---
 
-Каждая шахматная партия — это отдельная **Room** (`ChessRoom`). Room изолирует игроков одной партии от других.
+## Аутентификация (onAuth)
 
-### Lifecycle
+При подключении клиент передаёт JWT токен в опциях:
 
-| Событие | Описание |
-|---------|----------|
-| `onCreate` | Комната создана матчмейкером. Инициализация начального состояния |
-| `onAuth` | Проверка JWT-токена клиента перед подключением |
-| `onJoin` | Клиент успешно подключился |
-| `onMessage` | Клиент отправил сообщение (ход, переподключение) |
-| `onLeave` | Клиент покинул комнату (согласованное или неожиданное отключение) |
-| `onDispose` | Комната уничтожается — финальное сохранение в MongoDB |
+```ts
+room = await client.joinOrCreate("chess_room", { token: jwtToken });
+```
 
-### Пример ChessRoom
+Внутри `ChessRoom.onAuth()` токен верифицируется через `jwt.verify(token, JWT_SECRET_KEY)`. Если валиден — `client.userData` устанавливается на декодированный объект пользователя, метод возвращает `true`. Если невалиден — возвращает `false` (клиент получает 403).
 
-```typescript
-import { Room, Client } from "colyseus";
-import { Schema, type } from "@colyseus/schema";
+---
 
-class ChessState extends Schema {
-    @type("string") position = "";
-    @type("boolean") move = true;
-    @type("string") playerWite = "";
-    @type("string") playerBlack = "";
-    @type("number") reitingWite = 800;
-    @type("number") reitingBlack = 800;
-    @type("number") timeWite = 180;
-    @type("number") timeBlack = 180;
-    @type("string") result = "pending";
-}
+## Состояние комнаты (Room State)
 
-export class ChessRoom extends Room<ChessState> {
-    maxClients = 2;
+При создании комнаты (`onCreate`) устанавливается начальное состояние:
 
-    onCreate(options) {
-        this.setState(new ChessState());
-        // Начальная позиция или пустая доска
-    }
-
-    onAuth(client, options, req) {
-        // Проверка JWT из заголовка или query
-        const token = req.headers.authorization?.split(" ")[1];
-        const user = verifyToken(token);
-        if (!user) return false;
-        client.userData = user;
-        return true;
-    }
-
-    onJoin(client, options) {
-        // Игрок подключился
-    }
-
-    onMessage(client, message) {
-        switch (message.event) {
-            case "startApp":
-                this.handleStartApp(client, message);
-                break;
-            case "startGame":
-                this.handleStartGame(client, message);
-                break;
-            case "game":
-                this.handleGameMove(client, message);
-                break;
-        }
-    }
-
-    onLeave(client, consented) {
-        // Сохранить состояние в MongoDB
-    }
-
-    onDispose() {
-        // Финальное сохранение результата в MongoDB
-    }
+```ts
+{
+  position: ["rnbqkbnrpppppppp88888888888888888888888888888888PPPPPPPPRNBQKBNR"],
+  move: true,
+  playerWite: "",
+  playerBlack: "",
+  reitingWite: 800,
+  reitingBlack: 800,
+  timeWite: 0,
+  timeBlack: 0,
+  result: "pending",
+  idGame: this.roomId,
+  typeGame: "standart",
+  timeControl: 0,
+  timePluse: 0,
 }
 ```
 
-## Протокол сообщений
+| Поле           | Тип      | По умолчанию | Описание |
+|----------------|----------|-------------|----------|
+| `position`     | string[] | `["rnbqkbnrpppppppp88888888888888888888888888888888PPPPPPPPRNBQKBNR"]` | Шахматная доска (FEN-подобная нотация) |
+| `move`         | boolean  | `true`      | Чей ход (`true` = белые) |
+| `playerWite`   | string   | `""`        | Имя белого игрока |
+| `playerBlack`  | string   | `""`        | Имя чёрного игрока |
+| `reitingWite`  | number   | `800`       | Рейтинг белого |
+| `reitingBlack` | number   | `800`       | Рейтинг чёрного |
+| `timeWite`     | number   | `0`         | Оставшееся время белых (сек) |
+| `timeBlack`    | number   | `0`         | Оставшееся время чёрных (сек) |
+| `result`       | string   | `"pending"` | Результат: `"pending"`, `"1-0"`, `"0-1"`, `"0.5-0.5"` |
+| `idGame`       | string   | `roomId`    | ID комнаты |
+| `typeGame`     | string   | `"standart"`| Тип игры |
+| `timeControl`  | number   | `0`         | Контроль времени |
+| `timePluse`    | number   | `0`         | Плюс времени за ход |
 
-Все сообщения — JSON-объекты. Клиент отправляет события через поле `event`.
+---
+
+## Назначение сторон (onJoin)
+
+При подключении первого игрока ему назначается роль `"wite"` (белые). При подключении второго — `"black"` (чёрные). Если оба игрока уже в комнате — назначение не происходит.
+
+При подключении второго игрока создаётся запись в MongoDB (`game_db`, коллекция `game`):
+
+```ts
+{
+  statusGame: "close",
+  nameWite: playerWite,
+  ownerWite: witeClient.userData._id,
+  reitingWite: reitingWite,
+  nameBlack: playerBlack,
+  ownerBlack: userId,
+  reitingBlack: reitingBlack,
+}
+```
+
+> **Важно:** Игра стартует автоматически при подключении второго игрока. Событие `gameStart` с данными о соперниках рассылается обоим клиентам сразу после подключения второго игрока.
+
+---
+
+## События (на вход от клиента → сервер)
+
+### `findGame`
+
+Клиент отправляет запрос на поиск/старт игры.
+
+**Параметры:**
+
+| Поле          | Тип    | Описание |
+|---------------|--------|----------|
+| `token`       | string | JWT токен |
+| `color`       | string | Желаемая сторона (`"wite"` или `"black"`) |
+| `typeGame`    | string | Тип игры |
+| `timeControl` | number | Контроль времени |
+| `timePluse`   | number | Плюс времени за ход |
+
+**Логика:**
+
+1. Если игрок ещё не назначен — назначается свободной стороне
+2. Если оба игрока в комнате и игра ещё не стартовала (`this.gameData` не установлен) — сохраняет игру в MongoDB и рассылает `gameStart` обоим
+3. Если оба игрока в комнате и игра уже стартовала (`this.gameData` установлен из `onJoin`) — обновляет параметры поиска в MongoDB, повторная рассылка `gameStart` не происходит
+4. Если только один игрок — отправляет `searching` ожидающему клиенту
 
 ### `startApp`
 
-Отправляется при подключении или переподключении. Сервер возвращает текущую игровую сессию, если она есть.
+Клиент запрашивает текущее состояние игры.
 
-```json
-{
-  "event": "startApp",
-  "token": "<JWT_TOKEN>",
-  "color": "wite"
-}
-```
+**Параметры:** произвольные (не используются)
+
+**Ответ:** сервер отправляет `mesRes` с полем `message: "game"` и текущим состоянием (позиция, стороны, рейтинги, время, ход).
+
+> **Примечание:** Ответ сериализуется через `JSON.stringify()` и отправляется через `client.send()` — это нестандартный Colyseus паттерн (обычно используют `client.send(eventName, data)`).
 
 ### `startGame`
 
-Начать новую игру или найти оппонента.
+Клиент запрашивает рассылку текущего состояния всем игрокам в комнате.
 
-```json
-{
-  "event": "startGame",
-  "token": "<JWT_TOKEN>",
-  "color": "wite",
-  "typeGame": "standart",
-  "timeControl": 180,
-  "timePluse": 2
-}
-```
+**Параметры:** произвольные (не используются)
+
+**Действие:** `this.broadcast("game", { ... })` — рассылает текущее состояние обоим клиентам.
+
+### `gameOver`
+
+Клиент сообщает о завершении игры.
+
+**Параметры:**
+
+| Поле            | Тип    | Описание |
+|-----------------|--------|----------|
+| `result`        | string | Результат: `"1-0"`, `"0-1"`, `"0.5-0.5"` |
+| `ratingChange`  | number | Изменение рейтинга для текущего клиента |
+
+**Действие:**
+
+1. Обновляет `this.state.result`
+2. Определяет результат для текущего клиента (`"win"`, `"loss"`, `"draw"`)
+3. Сохраняет результат и дату завершения в MongoDB
+4. Рассылает `gameOver` обоим клиентам с данными о результате
+
+> **Примечание:** Метод `handleGameMove` определён в `ChessRoom.ts` (обрабатывает `position` и `move`), но **не зарегистрирован** как обработчик `onMessage`. В текущей реализации ходы не обрабатываются на сервере — клиентская сторона управляет позицией, а сервер только рассылает текущее состояние по запросу (`startGame`).
 
 ### `cancelSearch`
 
-Отмена поиска оппонента. Отправляется, когда игрок закрывает модалку поиска. Сервер находит созданную, но не начатую игру по `gameId` и удаляет её из MongoDB.
+Клиент отменяет поиск игры.
+
+**Параметры:**
+
+| Поле      | Тип    | Описание |
+|-----------|--------|----------|
+| `gameId`  | string | `_id` игры для удаления |
+
+**Действие:**
+
+1. Находит и удаляет незапущенную игру из MongoDB (`statusGame: "open"`, `result: "pending"`)
+2. Отправляет `search_cancelled` отменившему клиенту
+3. Если оппонент в комнате — отправляет `search_cancelled_by_opponent`
+4. Закрывает комнату (`this.disconnect()`)
+
+---
+
+## События (на выход от сервера → клиент)
+
+| Событие                   | Описание |
+|---------------------------|----------|
+| `gameStart`               | Игра началась — полная информация о партии |
+| `game`                    | Обновление состояния игры (позиция, стороны, рейтинги, время, ход) |
+| `searching`               | Ожидание второго игрока |
+| `search_cancelled`        | Поиск отменён (отправляется отменившему) |
+| `search_cancelled_by_opponent` | Поиск отменён оппонентом |
+| `gameOver`                | Игра завершена — результат и изменение рейтинга |
+
+> **Примечание:** Событие `game` — единственный способ сервера рассылать обновления состояния. Метод `handleGameMove` определён в `ChessRoom.ts`, но не зарегистрирован как обработчик `onMessage` — в текущей реализации сервер не обрабатывает ходы автоматически.
+
+### Формат `gameStart`
 
 ```json
 {
-  "event": "cancelSearch",
-  "gameId": "64a1b2c3d4e5f6a7b8c9d0e1"
+  "idGame": "roomId",
+  "position": [...],
+  "playerWite": "Name1",
+  "playerBlack": "Name2",
+  "reitingWite": 800,
+  "reitingBlack": 800,
+  "timeWite": 0,
+  "timeBlack": 0,
+  "move": true,
+  "typeGame": "standart",
+  "timeControl": 180,
+  "timePluse": 2,
+  "message": "gameStart"
 }
 ```
 
-### `game`
-
-Отправить ход.
+### Формат `game`
 
 ```json
 {
-  "event": "game",
-  "token": "<JWT_TOKEN>",
-  "position": ["rnbqkbnrpppppppp88888888888888888888888888888888PPPPPPPPRNBQKBNR"],
-  "move": "e2e4"
+  "idGame": "roomId",
+  "position": [...],
+  "playerWite": "Name1",
+  "playerBlack": "Name2",
+  "reitingWite": 800,
+  "reitingBlack": 800,
+  "timeWite": 0,
+  "timeBlack": 0,
+  "move": true,
+  "message": "game"
 }
 ```
 
-## События сервера
-
-### Приветствие
-
-Отправляется автоматически при подключении.
+### Формат `gameOver`
 
 ```json
 {
-  "mesRes": {
-    "message": "ws connect",
-    "idWs": "<uuid>"
+  "status": "gameover",
+  "gameOverData": {
+    "result": "win" | "loss" | "draw",
+    "ratingChange": 12,
+    "finalResult": "1-0" | "0-1" | "0.5-0.5",
+    "message": "gameOver"
   }
 }
 ```
 
-### Результат `startApp`
-
-Текущая игровая сессия или пустой ответ.
+### Формат `searching`
 
 ```json
 {
-  "mesRes": {
-    "idGame": "<game_id>",
-    "position": [...],
-    "playerWite": "WhitePlayer",
-    "playerBlack": "BlackPlayer",
-    "reitingWite": 1200,
-    "reitingBlack": 1150,
-    "timeWite": 180,
-    "timeBlack": 180,
-    "move": true,
-    "message": "game"
-  }
-}
-```
-
-### Результат `startGame`
-
-```json
-{
-  "mesRes": {
-    "idGame": "<game_id>",
-    "message": "startGame",
-    "opponentId": "<opponent_user_id>",
+  "searchData": {
     "typeGame": "standart",
     "timeControl": 180,
-    "timePluse": 2,
-    "playerWite": "WhitePlayer",
-    "playerBlack": "BlackPlayer",
-    "reitingWite": 1200,
-    "reitingBlack": 1150
+    "timePluse": 2
   }
 }
 ```
 
-### Результат `game`
-
-Обновлённая позиция после хода. Колyseus автоматически синхронизирует изменения state со всеми подключёнными клиентами.
+### Формат `mesRes` (startApp, cancelSearch)
 
 ```json
 {
   "mesRes": {
-    "idGame": "<game_id>",
+    "message": "game" | "not_in_game" | "search_cancelled" | "search_cancelled_by_opponent" | "opponent_disconnected",
+    "idGame": "...",
     "position": [...],
-    "playerWite": "WhitePlayer",
-    "playerBlack": "BlackPlayer",
-    "reitingWite": 1200,
-    "reitingBlack": 1150,
-    "timeWite": 175,
-    "timeBlack": 180,
-    "move": false,
-    "message": "game"
+    "playerWite": "...",
+    "playerBlack": "...",
+    "reitingWite": 800,
+    "reitingBlack": 800,
+    "timeWite": 0,
+    "timeBlack": 0,
+    "move": true,
+    "opponentRole": "wite" | "black"
   }
 }
 ```
 
-## Обработка ошибок
+---
 
-Все ошибки WebSocket логируются в `logs/ws-errors.log`:
+## Жизненный цикл комнаты
 
-- Ошибки подключения (неверный origin)
-- Ошибки парсинга JSON
-- Ошибки аутентификации
-- Ошибки при отправке сообщений клиенту
-- Ошибки уровня сервера
+### onDispose
 
-Colyseus также предоставляет встроенные механизмы:
-- `onUnhandledException` — перехват необработанных исключений в lifecycle-методах
-- Автоматическое логирование ошибок соединений
+Вызывается при уничтожении комнаты (после отключения всех клиентов). Если игра завершена (`result !== "pending"`), финально сохраняет результат в MongoDB.
+
+### onLeave
+
+Вызывается при отключении клиента. Логика:
+
+1. Если отключившийся — белые или чёрные — уведомляет оппонента через `mesRes` с `message: "opponent_disconnected"` и `opponentRole`
+2. Если игра не начата (`statusGame: "open"`, `result: "pending"`) — удаляет запись из MongoDB
+3. Если игра начата — сохраняет текущее состояние (`position`, `move`) в MongoDB

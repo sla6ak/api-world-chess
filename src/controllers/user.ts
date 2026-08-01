@@ -49,7 +49,12 @@ class User {
                 throw createError(401, `Email or password is wrong`);
             }
 
-            const token = jwt.sign({ id: (user as { _id: string })._id }, JWT_SECRET_KEY, {
+            const token = jwt.sign({
+                id: (user as { _id: string })._id,
+                _id: (user as { _id: string })._id,
+                name: (user as { name: string }).name,
+                currentReiting: (user as { currentReiting: number }).currentReiting,
+            }, JWT_SECRET_KEY, {
                 expiresIn: "30d",
             });
 
