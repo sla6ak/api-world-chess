@@ -331,13 +331,64 @@ class ChessRoom extends Room {
             statusGame: "finished",
         });
 
+        // Обновляем статистику и рейтинг игроков в MongoDB
+        try {
+            const game = await GameModel.findById(this.state.idGame);
+            if (game && game.ownerWite && game.ownerBlack) {
+                const white = await User.findById(game.ownerWite);
+                const black = await User.findById(game.ownerBlack);
+                if (white && black) {
+                    white.gamesPlayed += 1;
+                    black.gamesPlayed += 1;
+
+                    const wOld = white.currentReiting;
+                    const bOld = black.currentReiting;
+                    const E_w = 1 / (1 + Math.pow(10, (bOld - wOld) / 400));
+                    const E_b = 1 / (1 + Math.pow(10, (wOld - bOld) / 400));
+
+                    if (info.result === "1-0") {
+                        white.currentReiting = Math.round(wOld + 32 * (1 - E_w));
+                        black.currentReiting = Math.round(bOld + 32 * (0 - E_b));
+                        white.wins += 1;
+                        black.losses += 1;
+                    } else if (info.result === "0-1") {
+                        white.currentReiting = Math.round(wOld + 32 * (0 - E_w));
+                        black.currentReiting = Math.round(bOld + 32 * (1 - E_b));
+                        white.losses += 1;
+                        black.wins += 1;
+                    } else {
+                        white.currentReiting = Math.round(wOld + 32 * (0.5 - E_w));
+                        black.currentReiting = Math.round(bOld + 32 * (0.5 - E_b));
+                        white.draws += 1;
+                        black.draws += 1;
+                    }
+
+                    white.maxRating = Math.max(white.maxRating, white.currentReiting);
+                    black.maxRating = Math.max(black.maxRating, black.currentReiting);
+
+                    await white.save();
+                    await black.save();
+                    console.log(
+                        "[rating]",
+                        white.name,
+                        white.currentReiting,
+                        "vs",
+                        black.name,
+                        black.currentReiting
+                    );
+                }
+            }
+        } catch (e) {
+            logError("finalizeGame rating", e);
+        }
+
         this.broadcast("gameOver", {
             status: "gameover",
             gameOverData: {
                 result: info.result,
                 winnerRole: info.winnerRole,
                 endReason: info.endReason,
-                ratingChange: 0,
+                ratingChange: 0, // TODO: можно вернуть фактическое изменение для UI
             },
         });
 
