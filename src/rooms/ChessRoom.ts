@@ -3,477 +3,387 @@ import GameModel from "../models/game.js";
 import User from "../models/user.js";
 import jwt from "jsonwebtoken";
 import { logError } from "../utils/logger.js";
+import GameManager, {
+    type PlayerRole,
+    type PgnResult,
+    type EndReason,
+    type GameOverInfo,
+} from "../services/GameManager.js";
 
-/** Результат партии в нотации PGN. */
-type PgnResult = "1-0" | "0-1" | "0.5-0.5";
+interface MoveMessage {
+    from: string;
+    to: string;
+    promotion?: string;
+}
 
-/** Причины завершения партии (совпадают с enum endReason в модели game). */
-type EndReason = "resignation" | "agreed_draw" | "checkmate" | "timeout" | "abandonment";
+interface LegacyMoveMessage {
+    position?: string[];
+    move?: boolean;
+}
 
 class ChessRoom extends Room {
     gameData: unknown;
-    /** In-memory: кто сейчас держит активное предложение ничьей ("wite" | "black" | null). */
     private drawOfferBy: "wite" | "black" | null = null;
+    private gm: GameManager | null = null;
 
     constructor() {
         super();
         this.maxClients = 2;
         this.gameData = null;
-        // pre-existing project code — suppress the type error (same as before my changes)
         (this as any).reconnectionTimeout = 60;
     }
 
-/**
-     * Зафиксировать завершение партии: статус → finished, сохранить результат в MongoDB.
-     */
-    private async finalizeGame(result: PgnResult, endReason: EndReason, endGameOverrides: Record<string, unknown> = {}): Promise<void> {
-        const gameId = this.state.idGame || this.roomId;
-        try {
-            await GameModel.findByIdAndUpdate(gameId, {
-                result,
-                endReason,
-                statusGame: "close",
-                move: this.state.move,
-                position: this.state.position,
-                finalFen: this.state.position?.[this.state.position.length - 1] || "",
-                dateGameOver: new Date(),
-                ...endGameOverrides,
-            });
-            console.log("[ChessRoom:finalizeGame] ✅ Game saved to MongoDB | gameId:", gameId, "| result:", result, "| endReason:", endReason);
-        } catch (e) {
-            logError("finalizeGame: failed to save to MongoDB", e);
-        }
-    }
-
-    /** Отправить персональное game_over каждому игроку (win/loss/draw с его стороны). */
-    private broadcastGameOver(finalResult: PgnResult, endReason: EndReason): void {
-        for (const client of this.clients) {
-            const role = (client as any).role;
-            let resultForClient: "win" | "loss" | "draw";
-            if (finalResult === "0.5-0.5") {
-                resultForClient = "draw";
-            } else if (
-                (role === "wite" && finalResult === "1-0") ||
-                (role === "black" && finalResult === "0-1")
-            ) {
-                resultForClient = "win";
-            } else {
-                resultForClient = "loss";
-            }
-            client.send("game_over", {
-                status: "finished",
-                result: finalResult,
-                endReason,
-                winner: finalResult === "1-0" ? "wite" : finalResult === "0-1" ? "black" : null,
-                resultForClient,
-                ratingChange: 0,
-            });
-        }
-        console.log("[ChessRoom:broadcastGameOver] 📤 game_over sent to all | result:", finalResult, "| endReason:", endReason);
-    }
-
-
-
-    async onCreate(options: { gameId?: string } | undefined): Promise<void> {
-        // Якщо передано gameId — завантажуємо гру з MongoDB
-        let initialGameId = this.roomId;
-        let initialPosition: string[] = [];
-        let initialMove = true;
-        let initialPlayerWite = "";
-        let initialPlayerBlack = "";
-        let initialReitingWite = 800;
-        let initialReitingBlack = 800;
-        let initialTimeWite = 0;
-        let initialTimeBlack = 0;
-        let initialTypeGame = "standart";
-        let initialTimeControl = 0;
-        let initialTimePluse = 0;
+    async onCreate(options: { gameId?: string }): Promise<void> {
+        let initialState: {
+            position: string[];
+            move: boolean;
+            playerWite: string;
+            playerBlack: string;
+            reitingWite: number;
+            reitingBlack: number;
+            timeWite: number;
+            timeBlack: number;
+            result: string;
+            idGame: string;
+            typeGame: string;
+            timeControl: number;
+            timePluse: number;
+        } = {
+            position: [],
+            move: true,
+            playerWite: "",
+            playerBlack: "",
+            reitingWite: 800,
+            reitingBlack: 800,
+            timeWite: 0,
+            timeBlack: 0,
+            result: "pending",
+            idGame: this.roomId,
+            typeGame: "standart",
+            timeControl: 180,
+            timePluse: 0,
+        };
 
         if (options?.gameId) {
             try {
                 const game = await GameModel.findById(options.gameId);
                 if (game) {
-                    initialGameId = game._id.toString();
-                    initialPosition = game.position || [];
-                    initialMove = game.move !== undefined ? game.move : true;
-                    initialPlayerWite = game.nameWite || "";
-                    initialPlayerBlack = game.nameBlack || "";
-                    initialReitingWite = game.reitingWite || 800;
-                    initialReitingBlack = game.reitingBlack || 800;
-                    initialTimeWite = game.timeWite || 0;
-                    initialTimeBlack = game.timeBlack || 0;
-                    initialTypeGame = game.typeGame || "standart";
-                    initialTimeControl = game.timeControl || 0;
-                    initialTimePluse = game.timePluse || 0;
-                    console.log("[ChessRoom:onCreate] 📥 Loaded game from MongoDB | gameId:", initialGameId);
+                    initialState.idGame = game._id.toString();
+                    initialState.position = game.position as string[];
+                    initialState.move = Boolean(game.move);
+                    initialState.playerWite = game.nameWite || "";
+                    initialState.playerBlack = game.nameBlack || "";
+                    initialState.reitingWite = game.reitingWite || 800;
+                    initialState.reitingBlack = game.reitingBlack || 800;
+                    initialState.timeWite = game.timeWite || 0;
+                    initialState.timeBlack = game.timeBlack || 0;
+                    initialState.typeGame = game.typeGame || "standart";
+                    initialState.timeControl = game.timeControl || 0;
+                    initialState.timePluse = game.timePluse || 0;
+
+                    if (game.ownerWite && game.ownerBlack) {
+                        this.restoreGameManager(game);
+                    }
                 }
             } catch (e) {
-                logError("onCreate: failed to load game from MongoDB", e);
+                logError("onCreate: failed to load game", e);
             }
         }
 
-        this.setState({
-            position: initialPosition,
-            move: initialMove,
-            playerWite: initialPlayerWite,
-            playerBlack: initialPlayerBlack,
-            reitingWite: initialReitingWite,
-            reitingBlack: initialReitingBlack,
-            timeWite: initialTimeWite,
-            timeBlack: initialTimeBlack,
-            result: "pending",
-            idGame: initialGameId,
-            typeGame: initialTypeGame,
-            timeControl: initialTimeControl,
-            timePluse: initialTimePluse,
-        });
+        this.setState(initialState);
 
-        // WS оброблює лише ходи під час активної партії
-        this.onMessage("gameMove", (client, message) => {
-            this.handleGameMove(client, message);
-        });
+        this.onMessage("make_move", (client, msg: MoveMessage) =>
+            this.handleMakeMove(client, msg)
+        );
+        this.onMessage("gameMove", (client, msg: LegacyMoveMessage) =>
+            this.handleLegacyGameMove(client, msg)
+        );
+        this.onMessage("resign_game", (client) => this.handleResignGame(client));
+        this.onMessage("offer_draw", (client) => this.handleOfferDraw(client));
+    }
 
-        this.onMessage("gameOver", (client, message) => {
-            this.handleGameOver(client, message);
-        });
-
-        this.onMessage("resign_game", (client, message) => {
-            this.handleResignGame(client, message);
-        });
-
-        this.onMessage("offer_draw", (client, message) => {
-            this.handleOfferDraw(client, message);
-        });
+    private restoreGameManager(gameDoc: unknown): void {
+        const initialId = this.state.idGame as string;
+        try {
+            this.gameData = gameDoc;
+            this.gm = GameManager.restore(initialId, gameDoc as any, {
+                onTick: (timers) => this.broadcast("timers", timers),
+                onFlagFall: (loserRole) => this.handleFlagFall(loserRole),
+                onGameOver: (info) => {
+                    void this.finalizeAndBroadcast(info);
+                },
+                onAbandonment: (role) => {
+                    void this.handleAbandonment(role);
+                },
+            });
+            console.log("[ChessRoom] Restored GameManager | gameId:", initialId);
+        } catch (e) {
+            logError("GM restore failed", e);
+        }
     }
 
     async onAuth(client: any, options: { token?: string }): Promise<boolean> {
-        const token = options?.token;
-        const clientIp = client.sessionId;
-
-        if (!token) {
-            console.log("[ChessRoom:onAuth] ❌ No token provided | sessionId:", clientIp);
-            return false;
-        }
-
-        const { JWT_SECRET_KEY } = process.env as { JWT_SECRET_KEY: string };
-
+        if (!options?.token) return false;
         try {
-            const { id } = jwt.verify(token, JWT_SECRET_KEY) as { id: string };
+            const { id } = jwt.verify(
+                options.token,
+                process.env.JWT_SECRET_KEY as string
+            ) as { id: string };
             const user = await User.findById(id);
-            if (!user || user.token !== token) {
-                console.log("[ChessRoom:onAuth] ❌ Auth failed — user not found or token mismatch | sessionId:", clientIp);
-                return false;
-            }
+            if (!user || user.token !== options.token) return false;
             client.userData = user;
-            console.log("[ChessRoom:onAuth] ✅ Auth success | user:", user.name || "(unknown)", "| sessionId:", clientIp);
             return true;
-        } catch (e) {
-            console.log("[ChessRoom:onAuth] ❌ Auth failed | token invalid | sessionId:", clientIp, "| error:", e);
+        } catch {
             return false;
         }
     }
 
-    /**
-     * onJoin — завантажує стан гри з MongoDB за gameId.
-     * Гравець отримує роль (white/black) на основі ownerWite/ownerBlack.
-     */
-    async onJoin(client: any, options: { gameId?: string } | undefined): Promise<void> {
-        const userName = client.userData?.name;
-        const userRating = client.userData?.currentReiting ?? 800;
-        const userId = client.userData?._id;
-
-        console.log("[ChessRoom:onJoin] 🟢", userName, "joined | roomId:", this.roomId,
-            "| current players:", this.state.playerWite || "(empty)", "/", this.state.playerBlack || "(empty)");
-
-        // Визначаємо gameId: спочатку з опцій options, потім з state
-        const gameId = (options?.gameId) || this.state.idGame;
-        let game = null;
-
-        if (gameId) {
-            try {
-                game = await GameModel.findById(gameId);
-            } catch (e) {
-                logError("onJoin: failed to load game from MongoDB", e);
-            }
-        }
-
-        // Якщо гра знайдена і має обох гравців — призначаємо ролі
-        if (game && game.ownerWite && game.ownerBlack) {
-            if (game.ownerWite.toString() === userId?.toString()) {
-                this.state.playerWite = game.nameWite || userName || "";
-                this.state.reitingWite = game.reitingWite || userRating;
-                client.role = "wite";
-                console.log("[ChessRoom:onJoin] 🎨", userName, "assigned as WHITE (from MongoDB)");
-            } else if (game.ownerBlack.toString() === userId?.toString()) {
-                this.state.playerBlack = game.nameBlack || userName || "";
-                this.state.reitingBlack = game.reitingBlack || userRating;
-                client.role = "black";
-                console.log("[ChessRoom:onJoin] 🎨", userName, "assigned as BLACK (from MongoDB)");
-            } else {
-                console.log("[ChessRoom:onJoin] ❌", userName, "— not a participant of this game");
-                return;
-            }
-        } else {
-            // Гра ще не завантажена або не має обох гравців — немає доступу до ігрової кімнати
-            console.log("[ChessRoom:onJoin] ❌ Game not ready | gameId:", gameId, "| hasBothPlayers:", !!(game && game.ownerWite && game.ownerBlack));
-            return;
-        }
-
-        // Якщо обидва гравці в кімнаті — розсилаємо gameStart
-        if (this.state.playerWite && this.state.playerBlack) {
-            console.log("[ChessRoom:onJoin] ✅ Both players present, broadcasting 'gameStart' to all, idGame:", gameId);
-            try {
-                this.broadcast("gameStart", {
-                    idGame: gameId || this.roomId,
-                    position: this.state.position,
-                    playerWite: this.state.playerWite,
-                    playerBlack: this.state.playerBlack,
-                    reitingWite: this.state.reitingWite,
-                    reitingBlack: this.state.reitingBlack,
-                    timeWite: this.state.timeWite,
-                    timeBlack: this.state.timeBlack,
-                    move: this.state.move,
-                    typeGame: this.state.typeGame,
-                    timeControl: this.state.timeControl,
-                    timePluse: this.state.timePluse,
-                    message: "gameStart",
-                });
-                console.log("[ChessRoom:onJoin] 📨 'gameStart' broadcast sent to all players");
-            } catch (e) {
-                logError("onJoin: failed to broadcast gameStart", e);
-            }
-        }
-    }
-
-    handleGameMove(client: any, message: { position?: string[]; move?: boolean }): void {
-        const userName = client.userData?.name;
-        console.log("[ChessRoom:handleGameMove] 📥 Incoming 'gameMove' from", userName, "| move:", message.move,
-            "| position length:", message.position?.length);
+    async onJoin(client: any, options: { gameId?: string }): Promise<void> {
+        const userName = client.userData?.name || "Unknown";
+        const gameId = options?.gameId || (this.state.idGame as string);
 
         try {
-            if (message.position) {
-                this.state.position = message.position;
-            }
-            if (message.move !== undefined) {
-                this.state.move = message.move;
-            }
-
-            // Новый ход автоматически отклоняет активное предложение ничьей.
-            if (this.drawOfferBy) {
-                const cleared = this.drawOfferBy;
-                this.drawOfferBy = null;
-                this.broadcast("draw_cleared", { reason: "move_played", clearedFor: cleared });
-                console.log("[ChessRoom:handleGameMove] 🧹 Draw offer auto-cleared after move from", userName);
+            const game = await GameModel.findById(gameId);
+            if (!game || !game.ownerWite || !game.ownerBlack) {
+                console.log("[join] Game not ready | user:", userName, "| gameId:", gameId);
+                return client.leave(1000);
             }
 
-            console.log("[ChessRoom:handleGameMove] 📤 Broadcasting 'game' update to all players, move:", this.state.move);
+            const uid = String(client.userData._id);
+            const isWhite = String(game.ownerWite) === uid;
+            const isBlack = String(game.ownerBlack) === uid;
 
-            this.broadcast("game", {
-                idGame: this.state.idGame || this.roomId,
-                position: this.state.position,
-                playerWite: this.state.playerWite,
-                playerBlack: this.state.playerBlack,
-                reitingWite: this.state.reitingWite,
-                reitingBlack: this.state.reitingBlack,
-                timeWite: this.state.timeWite,
-                timeBlack: this.state.timeBlack,
-                move: this.state.move,
-                typeGame: this.state.typeGame,
-                timeControl: this.state.timeControl,
-                timePluse: this.state.timePluse,
-                message: "game",
+            if (!isWhite && !isBlack) {
+                console.log("[join] Not a participant | user:", userName, "| gameId:", gameId);
+                return client.leave(1000);
+            }
+
+            client.role = isWhite ? "wite" : "black";
+            this.setState({
+                playerWite: game.nameWite || "",
+                playerBlack: game.nameBlack || "",
+                reitingWite: game.reitingWite || 800,
+                reitingBlack: game.reitingBlack || 800,
             });
-            console.log("[ChessRoom:handleGameMove] ✅ 'game' broadcast sent");
-        } catch (e) {
-            logError("handleGameMove: broadcast error", e);
-        }
-    }
 
-    /**
-     * Сдаться: сервер фиксирует поражение сдавшегося, победу сопернику,
-     * статус finished, сохраняет результат в MongoDB, рассылает персональный game_over.
-     */
-    async handleResignGame(client: any, message: { gameId?: string; userId?: string }): Promise<void> {
-        const role = client.role;
-        const userName = client.userData?.name;
-
-        if (!role) {
-            console.log("[ChessRoom:handleResignGame] ❌ No role for", userName, "— ignoring");
-            return;
-        }
-
-        if (this.state.result !== "pending") {
-            console.log("[ChessRoom:handleResignGame] ⏭️ Game already finished (result:", this.state.result, "— ignoring resign from", userName);
-            return;
-        }
-
-        console.log("[ChessRoom:handleResignGame] 📥", userName, "resigned | role:", role, "| gameId:", message?.gameId);
-
-        const finalResult: PgnResult = role === "wite" ? "0-1" : "1-0";
-        this.state.result = finalResult;
-        this.drawOfferBy = null;
-
-        await this.finalizeGame(finalResult, "resignation");
-        this.broadcastGameOver(finalResult, "resignation");
-    }
-
-    /**
-     * Предложение ничьей: выставляет флаг и транслирует draw_offered сопернику.
-     * Если соперник уже предложил — считается принятой (agreed_draw).
-     */
-    async handleOfferDraw(client: any, message: { gameId?: string; userId?: string }): Promise<void> {
-        const role = client.role;
-        const userName = client.userData?.name;
-
-        if (!role) {
-            console.log("[ChessRoom:handleOfferDraw] ❌ No role for", userName, "— ignoring");
-            return;
-        }
-
-        if (this.state.result !== "pending") {
-            console.log("[ChessRoom:handleOfferDraw] ⏭️ Game already finished — ignoring draw offer from", userName);
-            return;
-        }
-
-        if (this.drawOfferBy === role) {
-            console.log("[ChessRoom:handleOfferDraw] ⏭️", userName, "already offered draw — ignoring duplicate");
-            return;
-        }
-
-        // Если предложение уже висит от соперника — это принятие ничьей.
-        if (this.drawOfferBy && this.drawOfferBy !== role) {
-            console.log("[ChessRoom:handleOfferDraw] 🤝", userName, "accepted draw offer from", this.drawOfferBy);
-            this.drawOfferBy = null;
-            this.state.result = "0.5-0.5";
-            await this.finalizeGame("0.5-0.5", "agreed_draw");
-            this.broadcastGameOver("0.5-0.5", "agreed_draw");
-            return;
-        }
-
-        // Выставляем флаг предложения ничьей.
-        this.drawOfferBy = role;
-        console.log("[ChessRoom:handleOfferDraw] 📤", userName, "offered draw | role:", role);
-
-        this.broadcast("draw_offered", {
-            byRole: role,
-            byName: userName,
-            gameId: message?.gameId,
-        });
-    }
-
-    async handleGameOver(client: any, message: { result: string; ratingChange: number }): Promise<void> {
-        const role = client.role;
-        const userName = client.userData?.name;
-        if (!role) {
-            console.log("[ChessRoom:handleGameOver] ❌ No role for", userName, ", ignoring");
-            return;
-        }
-
-        console.log("[ChessRoom:handleGameOver] 📥 Incoming 'gameOver' from", userName, "| result:", message.result, "| ratingChange:", message.ratingChange);
-
-        try {
-            this.state.result = message.result;
-            this.state.statusGame = "finished";
-
-            let clientResult: "win" | "loss" | "draw";
-            if (message.result === "0.5-0.5") {
-                clientResult = "draw";
-            } else if (
-                (role === "wite" && message.result === "1-0") ||
-                (role === "black" && message.result === "0-1")
-            ) {
-                clientResult = "win";
-            } else {
-                clientResult = "loss";
+            if (!this.gm) {
+                this.restoreGameManager(game);
             }
 
-            console.log("[ChessRoom:handleGameOver] 📊", userName, "result:", clientResult);
+            const bothInRoom =
+                (this.state.playerWite as string) && (this.state.playerBlack as string);
 
-            if (this.gameData) {
-                try {
-                    await GameModel.findByIdAndUpdate(this.state.idGame || this.roomId, {
-                        result: message.result,
-                        dateGameOver: new Date(),
+            if (bothInRoom) {
+                const resumed = this.gm?.handleReconnect() || false;
+                this.broadcast("gameStart", this.broadcastState());
+                if (resumed && this.gm) {
+                    this.broadcast("gameResumed", {
+                        timers: this.gm.getTimers(),
+                        fen: this.gm.currentFen,
                     });
-                    console.log("[ChessRoom:handleGameOver] ✅ Game result saved to MongoDB");
-                } catch (e) {
-                    logError("handleGameOver: save game result error", e);
                 }
             }
-
-            console.log("[ChessRoom:handleGameOver] 📤 Broadcasting 'gameOver' to all players");
-            this.broadcast("gameOver", {
-                status: "gameover",
-                gameOverData: {
-                    result: clientResult,
-                    ratingChange: message.ratingChange,
-                    finalResult: message.result,
-                    message: "gameOver",
-                },
-            });
-            console.log("[ChessRoom:handleGameOver] ✅ 'gameOver' broadcast sent");
         } catch (e) {
-            logError("handleGameOver: unexpected error", e);
+            logError("onJoin", e);
+            client.leave(1000);
         }
     }
 
-    async onLeave(client: any, consented: boolean): Promise<void> {
-        const role = client.role;
-        const userName = client.userData?.name;
-        const userId = client.userData?._id;
-        const opponentRole = role === "wite" ? "black" : "wite";
-        const opponentClient = this.clients.find((c: any) => c.role === opponentRole);
+    private handleMakeMove(client: any, message: MoveMessage): void {
+        if (!this.gm || this.state.result !== "pending") return;
 
-        console.log("[ChessRoom:onLeave] 🔴", userName, "left | role:", role, "| opponent:", opponentRole || "(none)", "| consented:", consented);
+        const res = this.gm.handleMove(client.role as PlayerRole, message);
 
-        if (opponentClient) {
-            try {
-                console.log("[ChessRoom:onLeave] 📤 Notifying opponent", opponentClient.userData?.name, "about disconnection");
-                opponentClient.send("opponent_disconnected", {
-                    opponentRole: role,
-                });
-                console.log("[ChessRoom:onLeave] ✅ 'opponent_disconnected' sent to", opponentClient.userData?.name);
-            } catch (e) {
-                logError("onLeave: failed to send to opponent", e);
-            }
+        if (!res.ok) {
+            client.send("move_error", {
+                code: res.error!.code,
+                message: res.error!.message,
+                fen: this.gm.currentFen,
+                position: this.gm.positionFlat,
+                move: this.gm.isWhiteMove,
+            });
+            return;
         }
 
-        // Зберігаємо стан гри в MongoDB при відключенні — только для активных (pending) ігор,
-        // щоб не перезаписати вже зафіксований результат в finalizeGame.
-        const gameId = this.state.idGame || this.roomId;
-        if (userId && this.state.result === "pending") {
-            try {
-                await GameModel.findByIdAndUpdate(gameId, {
-                    position: this.state.position,
-                    move: this.state.move,
-                });
-                console.log("[ChessRoom:onLeave] 💾 Game state saved to MongoDB for game", gameId);
-            } catch (e) {
-                logError("onLeave: failed to save game state", e);
-            }
-        }
-        // Якщо гравець вийшов посеред пропозиції нічиєї — скидаємо прапор,
-        // оскільки вона може залишитись висіти на reconnect-спірні моменти.
-        if (this.drawOfferBy === role) {
+        this.setState({
+            move: this.gm.isWhiteMove,
+            position: [this.gm.positionFlat],
+        });
+
+        this.broadcast("move_made", {
+            move: { from: message.from, to: message.to, promotion: message.promotion },
+            fen: this.gm.currentFen,
+            position: this.gm.positionFlat,
+            timers: this.gm.getTimers(),
+            nextTurn: this.gm.turn,
+            pgn: this.gm.currentPgn,
+        });
+
+        this.broadcast("game", this.broadcastState());
+
+        if (this.drawOfferBy) {
+            this.broadcast("draw_cleared", { reason: "move_played" });
             this.drawOfferBy = null;
+        }
+    }
+
+    private handleLegacyGameMove(client: any, message: LegacyMoveMessage): void {
+        if (!message.position || message.position.length === 0) return;
+
+        if (message.move !== undefined) {
+            this.setState({ move: message.move });
+        }
+
+        this.setState({
+            position: message.position,
+        });
+
+        if (this.gm && message.position) {
+            const flat = Array.isArray(message.position)
+                ? message.position[0]
+                : message.position;
+            if (typeof flat === "string" && this.gm) {
+                this.gm.applyLegacyPosition(flat, Boolean(message.move ?? true));
+            }
+        }
+
+        this.broadcast("game", this.broadcastState());
+    }
+
+    private handleFlagFall(loserRole: PlayerRole): void {
+        if (!this.gm || this.state.result !== "pending") return;
+        const info = this.gm.loseOnTime(loserRole);
+        void this.finalizeAndBroadcast(info);
+    }
+
+    private async handleAbandonment(role: PlayerRole): Promise<void> {
+        if (!this.gm || this.state.result !== "pending") return;
+        const info = this.gm.loseByAbandonment(role);
+        await this.finalizeAndBroadcast(info);
+    }
+
+    private async handleResignGame(client: any): Promise<void> {
+        if (!this.gm || this.state.result !== "pending") return;
+        const info = this.gm.resign(client.role as PlayerRole);
+        await this.finalizeAndBroadcast(info);
+    }
+
+    private async handleOfferDraw(client: any): Promise<void> {
+        if (!this.gm || this.state.result !== "pending") return;
+        const role = client.role as PlayerRole;
+
+        if (this.drawOfferBy === role) return;
+
+        if (this.drawOfferBy && this.drawOfferBy !== role) {
+            const info = this.gm.agreeDraw();
+            this.drawOfferBy = null;
+            await this.finalizeAndBroadcast(info);
+            return;
+        }
+
+        this.drawOfferBy = role;
+        this.broadcast("draw_offered", { byRole: role });
+    }
+
+    async onLeave(client: any, _consented: boolean): Promise<void> {
+        if (this.state.result !== "pending" || !this.gm) return;
+
+        const role = client.role as PlayerRole | undefined;
+        if (!role) return;
+
+        console.log("[onLeave]", role, "disconnected, pausing...");
+        this.gm.handleDisconnect(role);
+
+        try {
+            await this.saveGameToDb(true);
+        } catch (e) {
+            logError("onLeave save", e);
+        }
+
+        this.broadcast("opponent_disconnected", { role });
+    }
+
+    private broadcastState() {
+        return {
+            idGame: this.state.idGame,
+            position: this.state.position,
+            playerWite: this.state.playerWite,
+            playerBlack: this.state.playerBlack,
+            reitingWite: this.state.reitingWite,
+            reitingBlack: this.state.reitingBlack,
+            timeWite: this.gm?.getTimers().white ?? this.state.timeWite,
+            timeBlack: this.gm?.getTimers().black ?? this.state.timeBlack,
+            move: this.gm?.isWhiteMove ?? this.state.move,
+            typeGame: this.state.typeGame,
+            timeControl: this.state.timeControl,
+            timePluse: this.state.timePluse,
+            fen: this.gm?.currentFen,
+            message: "game",
+        };
+    }
+
+    private async finalizeAndBroadcast(info: GameOverInfo): Promise<void> {
+        if (!info) return;
+        if (this.state.result !== "pending") return;
+
+        this.setState({
+            result: info.result,
+            statusGame: "finished",
+        });
+
+        this.broadcast("gameOver", {
+            status: "gameover",
+            gameOverData: {
+                result: info.result,
+                winnerRole: info.winnerRole,
+                endReason: info.endReason,
+                ratingChange: 0,
+            },
+        });
+
+        await this.saveGameToDb(false, info);
+        this.gm?.dispose();
+        this.gm = null;
+    }
+
+    private async saveGameToDb(paused: boolean, info?: GameOverInfo): Promise<void> {
+        if (!this.gm) return;
+
+        const snapshot = this.gm.snapshot(paused);
+
+        const update: Record<string, unknown> = {
+            position: snapshot.position,
+            move: snapshot.move,
+            moveHistory: snapshot.moveHistory,
+            pgn: snapshot.pgn,
+            timeWite: snapshot.timeWite,
+            timeBlack: snapshot.timeBlack,
+            paused: snapshot.paused,
+            statusGame: snapshot.statusGame,
+            finalFen: this.gm.currentFen,
+        };
+
+        if (!paused && info) {
+            update.result = info.result;
+            update.endReason = info.endReason;
+            update.dateGameOver = new Date();
+        } else {
+            update.endReason = "";
+        }
+
+        try {
+            await GameModel.findByIdAndUpdate(this.state.idGame, update);
+            console.log("[DB] Saved | paused:", paused, "| result:", info?.result);
+        } catch (e) {
+            logError("saveGameToDb", e);
         }
     }
 
     async onDispose(): Promise<void> {
-        console.log("[ChessRoom:onDispose] 🧹 Room disposing | roomId:", this.roomId, "| result:", this.state.result);
-        if (this.state.result !== "pending") {
-            try {
-                await GameModel.findByIdAndUpdate(this.state.idGame || this.roomId, {
-                    result: this.state.result,
-                    dateGameOver: new Date(),
-                });
-                console.log("[ChessRoom:onDispose] ✅ Final game result saved to MongoDB");
-            } catch (e) {
-                logError("onDispose: failed to save game result", e);
-            }
-        } else {
-            console.log("[ChessRoom:onDispose] ⏭️ No final save needed (game pending)");
+        if (this.state.result !== "pending" && this.gm) {
+            await this.saveGameToDb(false, this.gm.getGameOverInfo() ?? undefined);
         }
+        this.gm?.dispose();
     }
 }
 
