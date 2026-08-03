@@ -35,9 +35,30 @@ const gameSchema = new Schema(
       enum: ["pending", "1-0", "0-1", "0.5-0.5"],
       default: "pending",
     },
+    endReason: {
+      type: String,
+      enum: ["", "checkmate", "stalemate", "threefold", "fifty_move", "insufficient_material", "timeout", "resignation", "agreed_draw", "abandonment"],
+      default: "",
+    },
+    pgn: { type: String, default: "" },
+    finalFen: { type: String, default: "" },
+    moveHistory: {
+      type: [
+        {
+          san: String,
+          from: String,
+          to: String,
+          color: String,
+          time: Number,
+          ts: Number,
+        },
+      ],
+      default: [],
+    },
     move: { type: Boolean, default: true },
     timeWite: { type: Number, default: 0 },
     timeBlack: { type: Number, default: 0 },
+    paused: { type: Boolean, default: false },
   },
   {
     versionKey: false,

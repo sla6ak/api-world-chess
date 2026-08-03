@@ -28,6 +28,7 @@
     "@colyseus/uwebsockets-transport": "^0.17.21",
     "@colyseus/ws-transport": "^0.16.5",
     "bcrypt": "^5.0.1",
+    "chess.js": "^1.4.0",
     "colyseus": "^0.16.5",
     "cors": "2.8.5",
     "cross-env": "^7.0.3",

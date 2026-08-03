@@ -4,15 +4,75 @@ import User from "../models/user.js";
 import jwt from "jsonwebtoken";
 import { logError } from "../utils/logger.js";
 
+/** Результат партии в нотации PGN. */
+type PgnResult = "1-0" | "0-1" | "0.5-0.5";
+
+/** Причины завершения партии (совпадают с enum endReason в модели game). */
+type EndReason = "resignation" | "agreed_draw" | "checkmate" | "timeout" | "abandonment";
+
 class ChessRoom extends Room {
     gameData: unknown;
+    /** In-memory: кто сейчас держит активное предложение ничьей ("wite" | "black" | null). */
+    private drawOfferBy: "wite" | "black" | null = null;
 
     constructor() {
         super();
         this.maxClients = 2;
         this.gameData = null;
-        this.reconnectionTimeout = 60;
+        // pre-existing project code — suppress the type error (same as before my changes)
+        (this as any).reconnectionTimeout = 60;
     }
+
+/**
+     * Зафиксировать завершение партии: статус → finished, сохранить результат в MongoDB.
+     */
+    private async finalizeGame(result: PgnResult, endReason: EndReason, endGameOverrides: Record<string, unknown> = {}): Promise<void> {
+        const gameId = this.state.idGame || this.roomId;
+        try {
+            await GameModel.findByIdAndUpdate(gameId, {
+                result,
+                endReason,
+                statusGame: "close",
+                move: this.state.move,
+                position: this.state.position,
+                finalFen: this.state.position?.[this.state.position.length - 1] || "",
+                dateGameOver: new Date(),
+                ...endGameOverrides,
+            });
+            console.log("[ChessRoom:finalizeGame] ✅ Game saved to MongoDB | gameId:", gameId, "| result:", result, "| endReason:", endReason);
+        } catch (e) {
+            logError("finalizeGame: failed to save to MongoDB", e);
+        }
+    }
+
+    /** Отправить персональное game_over каждому игроку (win/loss/draw с его стороны). */
+    private broadcastGameOver(finalResult: PgnResult, endReason: EndReason): void {
+        for (const client of this.clients) {
+            const role = (client as any).role;
+            let resultForClient: "win" | "loss" | "draw";
+            if (finalResult === "0.5-0.5") {
+                resultForClient = "draw";
+            } else if (
+                (role === "wite" && finalResult === "1-0") ||
+                (role === "black" && finalResult === "0-1")
+            ) {
+                resultForClient = "win";
+            } else {
+                resultForClient = "loss";
+            }
+            client.send("game_over", {
+                status: "finished",
+                result: finalResult,
+                endReason,
+                winner: finalResult === "1-0" ? "wite" : finalResult === "0-1" ? "black" : null,
+                resultForClient,
+                ratingChange: 0,
+            });
+        }
+        console.log("[ChessRoom:broadcastGameOver] 📤 game_over sent to all | result:", finalResult, "| endReason:", endReason);
+    }
+
+
 
     async onCreate(options: { gameId?: string } | undefined): Promise<void> {
         // Якщо передано gameId — завантажуємо гру з MongoDB
@@ -75,6 +135,14 @@ class ChessRoom extends Room {
 
         this.onMessage("gameOver", (client, message) => {
             this.handleGameOver(client, message);
+        });
+
+        this.onMessage("resign_game", (client, message) => {
+            this.handleResignGame(client, message);
+        });
+
+        this.onMessage("offer_draw", (client, message) => {
+            this.handleOfferDraw(client, message);
         });
     }
 
@@ -190,6 +258,14 @@ class ChessRoom extends Room {
                 this.state.move = message.move;
             }
 
+            // Новый ход автоматически отклоняет активное предложение ничьей.
+            if (this.drawOfferBy) {
+                const cleared = this.drawOfferBy;
+                this.drawOfferBy = null;
+                this.broadcast("draw_cleared", { reason: "move_played", clearedFor: cleared });
+                console.log("[ChessRoom:handleGameMove] 🧹 Draw offer auto-cleared after move from", userName);
+            }
+
             console.log("[ChessRoom:handleGameMove] 📤 Broadcasting 'game' update to all players, move:", this.state.move);
 
             this.broadcast("game", {
@@ -213,6 +289,78 @@ class ChessRoom extends Room {
         }
     }
 
+    /**
+     * Сдаться: сервер фиксирует поражение сдавшегося, победу сопернику,
+     * статус finished, сохраняет результат в MongoDB, рассылает персональный game_over.
+     */
+    async handleResignGame(client: any, message: { gameId?: string; userId?: string }): Promise<void> {
+        const role = client.role;
+        const userName = client.userData?.name;
+
+        if (!role) {
+            console.log("[ChessRoom:handleResignGame] ❌ No role for", userName, "— ignoring");
+            return;
+        }
+
+        if (this.state.result !== "pending") {
+            console.log("[ChessRoom:handleResignGame] ⏭️ Game already finished (result:", this.state.result, "— ignoring resign from", userName);
+            return;
+        }
+
+        console.log("[ChessRoom:handleResignGame] 📥", userName, "resigned | role:", role, "| gameId:", message?.gameId);
+
+        const finalResult: PgnResult = role === "wite" ? "0-1" : "1-0";
+        this.state.result = finalResult;
+        this.drawOfferBy = null;
+
+        await this.finalizeGame(finalResult, "resignation");
+        this.broadcastGameOver(finalResult, "resignation");
+    }
+
+    /**
+     * Предложение ничьей: выставляет флаг и транслирует draw_offered сопернику.
+     * Если соперник уже предложил — считается принятой (agreed_draw).
+     */
+    async handleOfferDraw(client: any, message: { gameId?: string; userId?: string }): Promise<void> {
+        const role = client.role;
+        const userName = client.userData?.name;
+
+        if (!role) {
+            console.log("[ChessRoom:handleOfferDraw] ❌ No role for", userName, "— ignoring");
+            return;
+        }
+
+        if (this.state.result !== "pending") {
+            console.log("[ChessRoom:handleOfferDraw] ⏭️ Game already finished — ignoring draw offer from", userName);
+            return;
+        }
+
+        if (this.drawOfferBy === role) {
+            console.log("[ChessRoom:handleOfferDraw] ⏭️", userName, "already offered draw — ignoring duplicate");
+            return;
+        }
+
+        // Если предложение уже висит от соперника — это принятие ничьей.
+        if (this.drawOfferBy && this.drawOfferBy !== role) {
+            console.log("[ChessRoom:handleOfferDraw] 🤝", userName, "accepted draw offer from", this.drawOfferBy);
+            this.drawOfferBy = null;
+            this.state.result = "0.5-0.5";
+            await this.finalizeGame("0.5-0.5", "agreed_draw");
+            this.broadcastGameOver("0.5-0.5", "agreed_draw");
+            return;
+        }
+
+        // Выставляем флаг предложения ничьей.
+        this.drawOfferBy = role;
+        console.log("[ChessRoom:handleOfferDraw] 📤", userName, "offered draw | role:", role);
+
+        this.broadcast("draw_offered", {
+            byRole: role,
+            byName: userName,
+            gameId: message?.gameId,
+        });
+    }
+
     async handleGameOver(client: any, message: { result: string; ratingChange: number }): Promise<void> {
         const role = client.role;
         const userName = client.userData?.name;
@@ -225,6 +373,7 @@ class ChessRoom extends Room {
 
         try {
             this.state.result = message.result;
+            this.state.statusGame = "finished";
 
             let clientResult: "win" | "loss" | "draw";
             if (message.result === "0.5-0.5") {
@@ -289,9 +438,10 @@ class ChessRoom extends Room {
             }
         }
 
-        // Зберігаємо стан гри в MongoDB при відключенні (для активних ігор)
+        // Зберігаємо стан гри в MongoDB при відключенні — только для активных (pending) ігор,
+        // щоб не перезаписати вже зафіксований результат в finalizeGame.
         const gameId = this.state.idGame || this.roomId;
-        if (userId) {
+        if (userId && this.state.result === "pending") {
             try {
                 await GameModel.findByIdAndUpdate(gameId, {
                     position: this.state.position,
@@ -301,6 +451,11 @@ class ChessRoom extends Room {
             } catch (e) {
                 logError("onLeave: failed to save game state", e);
             }
+        }
+        // Якщо гравець вийшов посеред пропозиції нічиєї — скидаємо прапор,
+        // оскільки вона може залишитись висіти на reconnect-спірні моменти.
+        if (this.drawOfferBy === role) {
+            this.drawOfferBy = null;
         }
     }
 
