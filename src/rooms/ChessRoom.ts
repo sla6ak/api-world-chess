@@ -25,6 +25,7 @@ class ChessRoom extends Room {
     gameData: unknown;
     private drawOfferBy: "wite" | "black" | null = null;
     private gm: GameManager | null = null;
+    private isGameLoaded = false;
 
     constructor() {
         super();
@@ -159,12 +160,22 @@ class ChessRoom extends Room {
             }
 
             client.role = isWhite ? "wite" : "black";
+
             this.setState({
                 playerWite: game.nameWite || "",
                 playerBlack: game.nameBlack || "",
                 reitingWite: game.reitingWite || 800,
                 reitingBlack: game.reitingBlack || 800,
+                idGame: gameId,
+                timeControl: game.timeControl || 0,
+                timePluse: game.timePluse || 0,
+                typeGame: game.typeGame || "standart",
             });
+
+            if (!options?.gameId) {
+                console.error("[onJoin] gameId missing — this should not happen");
+                return client.leave(1000);
+            }
 
             if (!this.gm) {
                 this.restoreGameManager(game);

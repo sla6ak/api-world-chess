@@ -36,7 +36,9 @@ const colyseusServer = new ColyseusServer({
     }),
 });
 
-colyseusServer.define("chess_room", ChessRoom as any);
+colyseusServer
+    .define("chess_room", ChessRoom as any)
+    .filterBy(["gameId"]);
 
 const isDevelopment = app.get("env") === "development";
 
