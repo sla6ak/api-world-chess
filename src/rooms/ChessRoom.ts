@@ -145,14 +145,14 @@ class ChessRoom extends Room {
 
         try {
             const game = await GameModel.findById(gameId);
-            if (!game || !game.ownerWite || !game.ownerBlack) {
-                console.log("[join] Game not ready | user:", userName, "| gameId:", gameId);
+            if (!game) {
+                console.log("[join] Game not found | user:", userName, "| gameId:", gameId);
                 return client.leave(1000);
             }
 
             const uid = String(client.userData._id);
-            const isWhite = String(game.ownerWite) === uid;
-            const isBlack = String(game.ownerBlack) === uid;
+            const isWhite = game.ownerWite ? String(game.ownerWite) === uid : false;
+            const isBlack = game.ownerBlack ? String(game.ownerBlack) === uid : false;
 
             if (!isWhite && !isBlack) {
                 console.log("[join] Not a participant | user:", userName, "| gameId:", gameId);
@@ -177,14 +177,24 @@ class ChessRoom extends Room {
                 return client.leave(1000);
             }
 
-            if (!this.gm) {
-                this.restoreGameManager(game);
-            }
-
             const bothInRoom =
-                (this.state.playerWite as string) && (this.state.playerBlack as string);
+                Boolean(this.state.playerWite) && Boolean(this.state.playerBlack);
 
             if (bothInRoom) {
+                // GameManager создаём только когда оба игрока назначены.
+                // Иначе P1, подключившийся во время поиска, получал комнату
+                // без движка и его ходы молча игнорировались.
+                if (!this.gm) {
+                    this.restoreGameManager(game);
+                }
+                // Уведомляем обоих, что второй игрок подключился — это триггерит
+                // navigate("/game") у ожидающего P1 на фронте.
+                if (this.clients.length > 1) {
+                    this.broadcast("opponent_joined", {
+                        playerWite: this.state.playerWite,
+                        playerBlack: this.state.playerBlack,
+                    });
+                }
                 const resumed = this.gm?.handleReconnect() || false;
                 this.broadcast("gameStart", this.broadcastState());
                 if (resumed && this.gm) {
@@ -193,6 +203,10 @@ class ChessRoom extends Room {
                         fen: this.gm.currentFen,
                     });
                 }
+            } else {
+                // Первый игрок остаётся в комнате и ждёт соперника —
+                // НЕ кикаем его (раньше здесь был client.leave — корень бага с ходами).
+                console.log("[join] Player waits for opponent | user:", userName, "| gameId:", gameId);
             }
         } catch (e) {
             logError("onJoin", e);
@@ -201,7 +215,37 @@ class ChessRoom extends Room {
     }
 
     private handleMakeMove(client: any, message: MoveMessage): void {
-        if (!this.gm || this.state.result !== "pending") return;
+        // Не молчим: клиент должен получить ошибку и ресинхронизироваться,
+        // иначе у него останется "оптимистичный" ход, а оппонент ничего не увидит.
+        if (!this.gm) {
+            console.warn("[move] GameManager is not initialized yet");
+            client.send("move_error", {
+                code: "GAME_NOT_READY",
+                message: "Гра ще не почалась — зачекайте суперника",
+            });
+            return;
+        }
+        if (this.state.result !== "pending") {
+            client.send("move_error", {
+                code: "GAME_FINISHED",
+                message: "Гра вже завершена",
+                fen: this.gm.currentFen,
+                position: this.gm.positionFlat,
+                move: this.gm.isWhiteMove,
+            });
+            return;
+        }
+        if (!client.role) {
+            console.warn("[move] Client without role tried to move");
+            client.send("move_error", {
+                code: "NOT_A_PLAYER",
+                message: "Ви не є учасником цієї партії",
+                fen: this.gm.currentFen,
+                position: this.gm.positionFlat,
+                move: this.gm.isWhiteMove,
+            });
+            return;
+        }
 
         const res = this.gm.handleMove(client.role as PlayerRole, message);
 
