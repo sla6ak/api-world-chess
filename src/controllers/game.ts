@@ -21,6 +21,16 @@ class Game {
         const userRating = req.user?.currentReiting ?? 800;
         const { typeGame, timeControl, timePluse } = req.body;
 
+        // Новый контракт: timeControl/timePluse передаются в СЕКУНДАХ.
+        // Защитная нормализация: если клиент всё ещё шлёт минуты (< 60) — конвертируем.
+        const normSec = (v: unknown, def: number): number => {
+            const n = Number(v);
+            if (!Number.isFinite(n) || n <= 0) return def;
+            return n < 60 ? Math.round(n * 60) : Math.round(n);
+        };
+        const timeControlSec = normSec(timeControl, 180);
+        const timePluseSec = timePluse != null ? normSec(timePluse, 0) : 0;
+
         console.log("[Game:createSearchRoom] 📥 Search request | userId:", userId,
             "| name:", userName, "| typeGame:", typeGame,
             "| timeControl:", timeControl, "| timePluse:", timePluse);
@@ -30,8 +40,8 @@ class Game {
                 statusGame: "open",
                 result: "pending",
                 typeGame: typeGame || "standart",
-                timeControl: timeControl || 180,
-                timePluse: timePluse || 0,
+                timeControl: timeControlSec,
+                timePluse: timePluseSec,
             };
 
             // Шукаємо існуючу відкриту гру з такими ж параметрами, де ще не є другий гравець
@@ -75,6 +85,10 @@ class Game {
                 typeGame: searchParams.typeGame,
                 timeControl: searchParams.timeControl,
                 timePluse: searchParams.timePluse,
+                // Часы обоих игроков стартуют с полного контроля времени —
+                // иначе GameManager восстановит 0 и флаг упадёт на первом ходу.
+                timeWite: searchParams.timeControl,
+                timeBlack: searchParams.timeControl,
                 ownerWite: userId,
                 nameWite: userName || "",
                 reitingWite: userRating,

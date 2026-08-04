@@ -105,6 +105,9 @@ class GameManager {
     private reconnectTimer: NodeJS.Timeout | null = null;
     private gameOverInfo: GameOverInfo | null = null;
     private readonly opts: GameManagerOptions;
+    /** true после первого успешного хода. До этого флаг падать не может —
+     *  игра ещё не началась, и время не тратится (даёт обоим игрокам время подключиться). */
+    private hasAnyMove = false;
 
     constructor(opts: GameManagerOptions, chess?: Chess, timers?: Partial<Timers>, history?: MoveRecord[]) {
         this.opts = opts;
@@ -132,17 +135,33 @@ class GameManager {
         result?: string;
     }, opts: Omit<GameManagerOptions, "gameId" | "timeControl" | "timePluse">): GameManager {
         const chess = rebuildChessFromHistory(doc.pgn, doc.moveHistory) ?? new Chess(START_FEN);
+        // Нормализация на переходный период: если в БД timeControl < 60 — это минуты (legacy).
+        const rawControl = doc.timeControl ?? 180;
+        const timeControl = rawControl > 0 && rawControl < 60 ? rawControl * 60 : rawControl;
+        const movesPlayed = (doc.moveHistory?.length ?? 0) > 0 || Boolean(doc.pgn);
+        // Если ходов не было, а время результатом «0» или подозрительно мало (<5% контроля) —
+        // считаем его артефактом старого бага и сбрасываем на полный контроль времени.
+        const isBroken = (v: number) => !movesPlayed && v <= Math.max(0, timeControl * 0.05);
+        const white = !movesPlayed && (!(doc.timeWite ?? 0) || isBroken(doc.timeWite ?? 0))
+            ? timeControl
+            : (doc.timeWite ?? timeControl);
+        const black = !movesPlayed && (!(doc.timeBlack ?? 0) || isBroken(doc.timeBlack ?? 0))
+            ? timeControl
+            : (doc.timeBlack ?? timeControl);
+        const rawPluse = doc.timePluse ?? 0;
+        const timePluse = rawPluse < 60 ? rawPluse : rawPluse; // increment изначально шёл в секундах на UI (+1s, +2s...)
         const gm = new GameManager(
             {
                 gameId,
-                timeControl: doc.timeControl ?? 180,
-                timePluse: doc.timePluse ?? 0,
+                timeControl,
+                timePluse,
                 ...opts,
             },
             chess,
-            { white: doc.timeWite ?? 180, black: doc.timeBlack ?? 180 },
+            { white, black },
             [],
         );
+        gm.hasAnyMove = movesPlayed;
         gm.status = doc.paused ? "paused" : "active";
         return gm;
     }
@@ -175,6 +194,13 @@ class GameManager {
         return { ...this.timers };
     }
 
+    /** Timestamp (ms) последнего хода или момента создания часов. */
+    get lastMoveTimestamp(): number {
+        return this.moveHistory.length
+            ? this.moveHistory[this.moveHistory.length - 1].time
+            : (this.lastTickAt ?? Date.now());
+    }
+
     getGameOverInfo(): GameOverInfo | null {
         return this.gameOverInfo;
     }
@@ -194,7 +220,11 @@ class GameManager {
         const key = this.chess.turn() === "w" ? "white" : "black";
         this.timers[key] = Math.max(0, this.timers[key] - elapsed);
 
-        if (this.timers[key] <= 0) {
+        // Флаг может упасть ТОЛЬКО когда игра реально идёт (статус active,
+        // хотя бы один ход сделан — часы полноценно инициализированы).
+        // Иначе при восстановлении из кривого снапшота (timeWite/timeBlack = 0)
+        // игра мгновенно завершалась таймаутом ещё до первого хода.
+        if (this.timers[key] <= 0 && this.hasAnyMove) {
             this.opts.onFlagFall?.(key === "white" ? "wite" : "black");
             return true;
         }
@@ -264,12 +294,14 @@ class GameManager {
             return { ok: false, error: { code: "INVALID_MOVE", message: "Invalid move" } };
         }
 
+        const moveTs = Date.now();
+        this.hasAnyMove = true;
         this.moveHistory.push({
             san: made.san,
             from: made.from,
             to: made.to,
             color: made.color,
-            time: Date.now(),
+            time: moveTs,
         });
 
         // Инкремент за ход.

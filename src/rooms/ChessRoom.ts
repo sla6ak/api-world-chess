@@ -79,11 +79,27 @@ class ChessRoom extends Room {
                     initialState.timeWite = game.timeWite || 0;
                     initialState.timeBlack = game.timeBlack || 0;
                     initialState.typeGame = game.typeGame || "standart";
-                    initialState.timeControl = game.timeControl || 0;
-                    initialState.timePluse = game.timePluse || 0;
+                    // Нормализация legacy-минут в секунды (<60 означает старые записи в минутах)
+                    const norm = (v: number | undefined | null) => {
+                        const n = Number(v) || 0;
+                        return n > 0 && n < 60 ? n * 60 : n;
+                    };
+                    initialState.timeControl = norm(game.timeControl);
+                    initialState.timePluse = Number(game.timePluse) || 0; // инкремент всегда шёл в секундах
+                    initialState.timeWite = norm(game.timeWite) || 0;
+                    initialState.timeBlack = norm(game.timeBlack) || 0;
+
+                    // Для партии без ещё сделанных ходов часы в state должны показывать
+                    // ПОЛНЫЙ контроль времени, даже если в БД лежит 0 — иначе клиент
+                    // при gameStarted получит 00:00 вместо выбранного режима.
+                    const hasMoves = (game.moveHistory?.length ?? 0) > 0 || Boolean(game.pgn);
+                    if (!hasMoves && initialState.timeControl > 0) {
+                        if (!initialState.timeWite) initialState.timeWite = initialState.timeControl;
+                        if (!initialState.timeBlack) initialState.timeBlack = initialState.timeControl;
+                    }
 
                     if (game.ownerWite && game.ownerBlack) {
-                        this.restoreGameManager(game);
+                        this.restoreGameManager(game, initialState.idGame);
                     }
                 }
             } catch (e) {
@@ -103,8 +119,11 @@ class ChessRoom extends Room {
         this.onMessage("offer_draw", (client) => this.handleOfferDraw(client));
     }
 
-    private restoreGameManager(gameDoc: unknown): void {
-        const initialId = this.state.idGame as string;
+    private restoreGameManager(gameDoc: unknown, gameId?: string): void {
+        // ВАЖНО: this.state ещё НЕ существует на момент вызова из onCreate
+        // (setState вызывается позже) — раньше здесь читали this.state.idGame
+        // и GameManager создавался с id=undefined.
+        const initialId = (this as any).state?.idGame as string | undefined ?? gameId ?? this.roomId;
         try {
             this.gameData = gameDoc;
             this.gm = GameManager.restore(initialId, gameDoc as any, {
@@ -161,15 +180,30 @@ class ChessRoom extends Room {
 
             client.role = isWhite ? "wite" : "black";
 
+            // Нормализация legacy-минут (<60 при >0) в секунды.
+            const norm = (v: number | null | undefined) => {
+                const n = Number(v) || 0;
+                return n > 0 && n < 60 ? n * 60 : n;
+            };
+            const tc = norm(game.timeControl);
+            const tw = norm(game.timeWite);
+            const tb = norm(game.timeBlack);
+            const hasMoves = (game.moveHistory?.length ?? 0) > 0 || Boolean(game.pgn);
+
             this.setState({
                 playerWite: game.nameWite || "",
                 playerBlack: game.nameBlack || "",
                 reitingWite: game.reitingWite || 800,
                 reitingBlack: game.reitingBlack || 800,
                 idGame: gameId,
-                timeControl: game.timeControl || 0,
-                timePluse: game.timePluse || 0,
+                timeControl: tc,
+                timePluse: Number(game.timePluse) || 0,
                 typeGame: game.typeGame || "standart",
+                // Клиент получает стартовое время, даже если GameManager ещё не создан
+                // (первый игрок ждёт соперника) — страхуемся от 00:00 на часах.
+                // Если ходов не было, а в БД нули/битые значения — берём полный контроль.
+                timeWite: this.gm?.getTimers().white ?? ((!hasMoves && !tw) ? tc : (tw || tc || 180)),
+                timeBlack: this.gm?.getTimers().black ?? ((!hasMoves && !tb) ? tc : (tb || tc || 180)),
             });
 
             if (!options?.gameId) {
@@ -272,6 +306,7 @@ class ChessRoom extends Room {
             timers: this.gm.getTimers(),
             nextTurn: this.gm.turn,
             pgn: this.gm.currentPgn,
+            lastMoveTimestamp: this.gm.lastMoveTimestamp,
         });
 
         this.broadcast("game", this.broadcastState());
@@ -372,6 +407,7 @@ class ChessRoom extends Room {
             typeGame: this.state.typeGame,
             timeControl: this.state.timeControl,
             timePluse: this.state.timePluse,
+            lastMoveTimestamp: this.gm?.lastMoveTimestamp,
             fen: this.gm?.currentFen,
             message: "game",
         };

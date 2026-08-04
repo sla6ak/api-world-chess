@@ -16,6 +16,8 @@ const gameSchema = new Schema(
       ],
     },
     typeGame: { type: String, default: "standart" },
+    // Контракт времени: ВСЁ в СЕКУНДАХ (timeControl — секунды на партию,
+    // timePluse — добавка за ход в секундах, timeWite/timeBlack — остаток в секундах).
     timeControl: { type: Number, default: 180 },
     timePluse: { type: Number, default: 2 },
     nameWite: { type: String, default: "" },
@@ -56,8 +58,10 @@ const gameSchema = new Schema(
       default: [],
     },
     move: { type: Boolean, default: true },
-    timeWite: { type: Number, default: 0 },
-    timeBlack: { type: Number, default: 0 },
+    // Стартовое время должно соответствовать timeControl — иначе часы стартуют с 0
+    // и серверный флаг падает на первом же ходу (ложный "timeout").
+    timeWite: { type: Number, default: 180 },
+    timeBlack: { type: Number, default: 180 },
     paused: { type: Boolean, default: false },
   },
   {
