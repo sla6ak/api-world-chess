@@ -70,6 +70,21 @@ class ChessRoom extends Room {
                 const game = await GameModel.findById(options.gameId);
                 if (game) {
                     initialState.idGame = game._id.toString();
+                    // КРИТИЧНО: если документ в Mongo уже завершён — state комнаты
+                    // обязан это отражать. Иначе (state.result оставался "pending")
+                    // "воскрешённая" комната инициализировала GameManager по мёртвой
+                    // игре, и первый ход отклонялся как GAME_FINISHED с тостом
+                    // «Игра уже завершена» при визуально живой доске.
+                    const dbResult = (game as { result?: string }).result;
+                    if (dbResult && dbResult !== "pending") {
+                        console.warn(
+                            "[onCreate] Game document is already finished | gameId:",
+                            initialState.idGame,
+                            "| dbResult:",
+                            dbResult
+                        );
+                        initialState.result = dbResult;
+                    }
                     initialState.position = game.position as string[];
                     initialState.move = Boolean(game.move);
                     initialState.playerWite = game.nameWite || "";
@@ -98,8 +113,35 @@ class ChessRoom extends Room {
                         if (!initialState.timeBlack) initialState.timeBlack = initialState.timeControl;
                     }
 
-                    if (game.ownerWite && game.ownerBlack) {
+                    // GameManager имеет смысл только для реально идущей партии;
+                    // для завершённой в БД не поднимаем движок и часы вообще.
+                    if (
+                        initialState.result === "pending" &&
+                        game.ownerWite &&
+                        game.ownerBlack
+                    ) {
                         this.restoreGameManager(game, initialState.idGame);
+
+                        // Диагностика: подозрительные нулевые часы у партии без ходов
+                        // — классический предвестник мгновенного падения флага.
+                        if (
+                            this.gm &&
+                            !hasMoves &&
+                            (this.gm.getTimers().white < initialState.timeControl ||
+                                this.gm.getTimers().black < initialState.timeControl)
+                        ) {
+                            console.warn(
+                                "[onCreate] GameManager restored with NON-FULL clocks on move-0 game | gameId:",
+                                initialState.idGame,
+                                "| timers:",
+                                JSON.stringify(this.gm.getTimers()),
+                                "| timeControl:",
+                                initialState.timeControl,
+                                "| db timeWite/timeBlack:",
+                                game.timeWite,
+                                game.timeBlack
+                            );
+                        }
                     }
                 }
             } catch (e) {
@@ -251,21 +293,30 @@ class ChessRoom extends Room {
     private handleMakeMove(client: any, message: MoveMessage): void {
         // Не молчим: клиент должен получить ошибку и ресинхронизироваться,
         // иначе у него останется "оптимистичный" ход, а оппонент ничего не увидит.
+        if (this.state.result !== "pending") {
+            console.warn(
+                "[move] GAME_FINISHED rejected | gameId:", this.state.idGame,
+                "| roomId:", this.roomId,
+                "| state.result:", this.state.result,
+                "| gm status:", this.gm ? (this.gm as any).status : "none",
+                "| gm hasAnyMove:", this.gm ? (this.gm as any).hasAnyMove : "n/a",
+                "| gm timers:", this.gm ? JSON.stringify(this.gm.getTimers()) : "n/a",
+                "| clients:", this.clients.length
+            );
+            client.send("move_error", {
+                code: "GAME_FINISHED",
+                message: "Гра вже завершена",
+                fen: this.gm?.currentFen,
+                position: this.gm?.positionFlat,
+                move: this.gm?.isWhiteMove,
+            });
+            return;
+        }
         if (!this.gm) {
             console.warn("[move] GameManager is not initialized yet");
             client.send("move_error", {
                 code: "GAME_NOT_READY",
                 message: "Гра ще не почалась — зачекайте суперника",
-            });
-            return;
-        }
-        if (this.state.result !== "pending") {
-            client.send("move_error", {
-                code: "GAME_FINISHED",
-                message: "Гра вже завершена",
-                fen: this.gm.currentFen,
-                position: this.gm.positionFlat,
-                move: this.gm.isWhiteMove,
             });
             return;
         }
@@ -341,6 +392,14 @@ class ChessRoom extends Room {
     }
 
     private handleFlagFall(loserRole: PlayerRole): void {
+        console.warn(
+            "[flagFall] | gameId:", this.state?.idGame,
+            "| roomId:", this.roomId,
+            "| loserRole:", loserRole,
+            "| timers:", this.gm ? JSON.stringify(this.gm.getTimers()) : "n/a",
+            "| hasAnyMove:", (this.gm as any)?.hasAnyMove,
+            "| moveCount:", (this.gm as any)?.moveHistory?.length
+        );
         if (!this.gm || this.state.result !== "pending") return;
         const info = this.gm.loseOnTime(loserRole);
         void this.finalizeAndBroadcast(info);
@@ -417,6 +476,14 @@ class ChessRoom extends Room {
         if (!info) return;
         if (this.state.result !== "pending") return;
 
+        console.warn(
+            "[finalize] game over | gameId:", this.state.idGame,
+            "| roomId:", this.roomId,
+            "| result:", info.result,
+            "| endReason:", info.endReason,
+            "| winnerRole:", info.winnerRole,
+            "| moveCount:", (this.gm as any)?.moveHistory?.length
+        );
         this.setState({
             result: info.result,
             statusGame: "finished",
