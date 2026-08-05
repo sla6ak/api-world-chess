@@ -1,4 +1,9 @@
 import "dotenv/config";
+// Перехват console.* в файл ДО любых импортов, которые могут логировать.
+// Все логи сервера зеркалируются в logs/server-console.log.
+import { installConsoleFileLogger } from "./utils/consoleLogger.js";
+installConsoleFileLogger();
+
 import { Request, Response, NextFunction } from "express";
 import { app, server } from "./config/serverConfig.js";
 import routerAuth from "./routers/auth.routes.js";

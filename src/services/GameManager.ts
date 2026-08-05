@@ -148,8 +148,10 @@ class GameManager {
         const black = !movesPlayed && (!(doc.timeBlack ?? 0) || isBroken(doc.timeBlack ?? 0))
             ? timeControl
             : (doc.timeBlack ?? timeControl);
-        const rawPluse = doc.timePluse ?? 0;
-        const timePluse = rawPluse < 60 ? rawPluse : rawPluse; // increment изначально шёл в секундах на UI (+1s, +2s...)
+        // timePluse — ВСЕГДА секунды инкремента за ход (Фишер): 0/1/2/3/5/10/30.
+        // Heurистика «<60 → нормализовать» здесь не нужна: фронт уже шлёт секунды,
+        // а конвертация legacy-минут нужна ТОЛЬКО для timeControl/timeWite/timeBlack.
+        const timePluse = Math.max(0, Number(doc.timePluse) || 0);
         const gm = new GameManager(
             {
                 gameId,

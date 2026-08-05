@@ -23,13 +23,18 @@ class Game {
 
         // Новый контракт: timeControl/timePluse передаются в СЕКУНДАХ.
         // Защитная нормализация: если клиент всё ещё шлёт минуты (< 60) — конвертируем.
+        // ВНИМАНИЕ: эвристика применяется ТОЛЬКО к timeControl. timePluse — это
+        // инкремент Фишера В СЕКУНДАХ (0/1/2/3/5/10/30), нормализовать его нельзя —
+        // иначе «30s + 30s/ход» превращается в «+1800s/ход».
         const normSec = (v: unknown, def: number): number => {
             const n = Number(v);
             if (!Number.isFinite(n) || n <= 0) return def;
             return n < 60 ? Math.round(n * 60) : Math.round(n);
         };
         const timeControlSec = normSec(timeControl, 180);
-        const timePluseSec = timePluse != null ? normSec(timePluse, 0) : 0;
+        const timePluseSec = timePluse != null
+            ? Math.max(0, Math.min(60, Math.round(Number(timePluse))))
+            : 0;
 
         console.log("[Game:createSearchRoom] 📥 Search request | userId:", userId,
             "| name:", userName, "| typeGame:", typeGame,
