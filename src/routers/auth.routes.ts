@@ -19,6 +19,10 @@ router.get("/current", authenticate, user.getCurrentUser);
 
 router.post("/logout", authenticate, user.logOutUser);
 
+// Топ игроков по рейтингу (публичный для авторизованных пользователей).
+// Пример: GET /auth/top?limit=30
+router.get("/top", authenticate, user.getTopPlayers);
+
 router.delete("/delete", authenticate, user.delete);
 
 export default router;

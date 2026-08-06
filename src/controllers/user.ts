@@ -93,6 +93,29 @@ class User {
         }
     }
 
+    /**
+     * GET /auth/top?limit=30 — топ игроков по рейтингу (currentReiting desc).
+     * По умолчанию 30. Хеш/пароль/email НЕ возвращаются.
+     */
+    async getTopPlayers(req: Request, res: Response, next: NextFunction): Promise<void> {
+        try {
+            const limitQuery = Number(req.query.limit);
+            const limit = Number.isFinite(limitQuery) && limitQuery > 0
+                ? Math.min(100, Math.floor(limitQuery))
+                : 30;
+
+            const players = await UserModel.find({}, "name currentReiting gamesPlayed wins losses draws")
+                .sort({ currentReiting: -1 })
+                .limit(limit)
+                .lean();
+
+            console.log(`[User:getTopPlayers] 🏆 Returning ${players.length} players (limit=${limit})`);
+            res.json({ players });
+        } catch (error) {
+            next(error);
+        }
+    }
+
     async delete(req: Request, res: Response, next: NextFunction): Promise<void> {
         try {
             const { email } = req.user as { email: string };

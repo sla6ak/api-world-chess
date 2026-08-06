@@ -56,6 +56,20 @@ class Game {
             });
 
             if (existingGame) {
+                // ⚠️ Не позволяем тому же самому пользователю присоединиться
+                // к своей открытой игре (фронт может шлёпнуть POST /game/find дважды).
+                if (String(existingGame.ownerWite) === String(userId)) {
+                    console.log("[Game:createSearchRoom] ⚠️ Same player tried to join own open game, return waiting | gameId:",
+                        existingGame._id, "| userId:", userId);
+                    res.status(200).json({
+                        message: "Search room created, waiting for opponent",
+                        status: "waiting",
+                        gameId: existingGame._id,
+                        game: existingGame,
+                    });
+                    return;
+                }
+
                 // Призначаємо другого гравця (чорного)
                 console.log("[Game:createSearchRoom] 🔁 Found existing game | existingGameId:",
                     existingGame._id, "| assigning player Black");
@@ -78,6 +92,27 @@ class Game {
                     message: "Matched with opponent",
                     status: "matched",
                     game: updatedGame,
+                });
+                return;
+            }
+
+            // ⚠️ У игрока уже может висеть открытая поисковая комната
+            // (напр. повторный клик по «Найти соперника»). Если это так —
+            // не создаём новую, а возвращаем старую.
+            const ownOpenGame = await GameModel.findOne({
+                ...searchParams,
+                ownerWite: userId,
+                ownerBlack: { $exists: false, $eq: null },
+            });
+
+            if (ownOpenGame) {
+                console.log("[Game:createSearchRoom] ♻️ Player already has open search room, returning it | gameId:",
+                    ownOpenGame._id, "| userId:", userId);
+                res.status(200).json({
+                    message: "Search room created, waiting for opponent",
+                    status: "waiting",
+                    gameId: ownOpenGame._id,
+                    game: ownOpenGame,
                 });
                 return;
             }
