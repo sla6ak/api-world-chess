@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 
-const logDir = path.join(__dirname, "..", "..", "..", "logs");
+const logDir = path.join(__dirname, "..", "..", "logs"); // <api>/logs (не корень репо)
 const logFile = path.join(logDir, "errors.log");
 
 const ensureLogDir = (): void => {

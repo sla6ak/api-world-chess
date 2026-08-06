@@ -24,11 +24,11 @@ const colyseusServer = new ColyseusServer({
         verifyClient: (info, callback) => {
             const origin = info.req.headers.origin;
             if (!origin || allowedOrigins.includes(origin)) {
+                console.log("[Colyseus] ✅ WebSocket connection allowed | origin:", origin);
                 // eslint-disable-next-line node/no-callback-literal
                 callback(true);
             } else {
-                // eslint-disable-next-line no-console
-                console.log(`WebSocket connection rejected from origin: ${origin}`);
+                console.log("[Colyseus] ❌ WebSocket connection rejected from origin:", origin);
                 // eslint-disable-next-line node/no-callback-literal
                 callback(false, 403, "Forbidden");
             }
@@ -36,7 +36,9 @@ const colyseusServer = new ColyseusServer({
     }),
 });
 
-colyseusServer.define("chess_room", ChessRoom as any);
+colyseusServer
+    .define("chess_room", ChessRoom as any)
+    .filterBy(["gameId"]);
 
 const isDevelopment = app.get("env") === "development";
 

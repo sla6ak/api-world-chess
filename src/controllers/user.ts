@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import UserModel from "../models/user.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import createError from "../helpers/errors/createError.js";
+import createError from "../errors/createError.js";
 
 const { JWT_SECRET_KEY } = process.env as { JWT_SECRET_KEY: string };
 
@@ -49,7 +49,12 @@ class User {
                 throw createError(401, `Email or password is wrong`);
             }
 
-            const token = jwt.sign({ id: (user as { _id: string })._id }, JWT_SECRET_KEY, {
+            const token = jwt.sign({
+                id: (user as { _id: string })._id,
+                _id: (user as { _id: string })._id,
+                name: (user as { name: string }).name,
+                currentReiting: (user as { currentReiting: number }).currentReiting,
+            }, JWT_SECRET_KEY, {
                 expiresIn: "30d",
             });
 
@@ -83,6 +88,29 @@ class User {
                 throw createError(404);
             }
             res.status(200).json({ message: "Logout success" });
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    /**
+     * GET /auth/top?limit=30 — топ игроков по рейтингу (currentReiting desc).
+     * По умолчанию 30. Хеш/пароль/email НЕ возвращаются.
+     */
+    async getTopPlayers(req: Request, res: Response, next: NextFunction): Promise<void> {
+        try {
+            const limitQuery = Number(req.query.limit);
+            const limit = Number.isFinite(limitQuery) && limitQuery > 0
+                ? Math.min(100, Math.floor(limitQuery))
+                : 30;
+
+            const players = await UserModel.find({}, "name currentReiting gamesPlayed wins losses draws")
+                .sort({ currentReiting: -1 })
+                .limit(limit)
+                .lean();
+
+            console.log(`[User:getTopPlayers] 🏆 Returning ${players.length} players (limit=${limit})`);
+            res.json({ players });
         } catch (error) {
             next(error);
         }

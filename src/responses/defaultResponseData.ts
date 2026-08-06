@@ -35,6 +35,7 @@ const defaultResponseData = (
             losses: null,
             draws: null,
             maxRating: null,
+        },
         status,
         message,
     };

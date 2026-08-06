@@ -1,5 +1,5 @@
 import Joi from "joi";
-import createError from "../helpers/errors/createError.js";
+import createError from "../errors/createError.js";
 import type { Request, Response, NextFunction } from "express";
 
 const loginValidation = (req: Request, res: Response, next: NextFunction): void => {

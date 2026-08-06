@@ -1,113 +1,147 @@
-# REST API
+# REST API — api-world-chess
 
-Базовый URL: `http://localhost:5000`
+## Базовый URL
 
-Все маршруты авторизации префиксированы `/auth`.
-
-## CORS
-
-Разрешённые origin'ы:
-
-| Origin | Назначение |
-|--------|-----------|
-| `http://localhost:3000` | React dev server |
-| `http://localhost:5173` | Vite dev server |
-| `http://127.0.0.1:3000` | React dev (альтернативный) |
-| `http://127.0.0.1:5173` | Vite dev (альтернативный) |
-| `https://app-world-chess.vercel.app` | Продакшн |
-
-Поддерживаются credentials (Authorization header, cookies).
-
-## Регистрация
-
-**`POST /auth/signup`**
-
-Требования: `email`, `name`, `password` (минимум 6 символов).
-
-```json
-{
-  "email": "player@example.com",
-  "name": "PlayerName",
-  "password": "securePass123"
-}
+```
+http://localhost:5000
 ```
 
-Успех (`201`):
+Все эндпоинты используют JSON. Тело запроса — `application/json`.
 
-```json
-{
-  "_id": "64a1b2c3d4e5f6a7b8c9d0e1",
-  "name": "PlayerName",
-  "email": "player@example.com",
-  "currentReiting": 800,
-  "token": "eyJhbGciOiJIUzI1NiIs..."
-}
-```
-
-Ошибки:
-- `400` — невалидные данные (Joi)
-- `409` — email уже занят
+---
 
 ## Авторизация
 
-**`POST /auth/login`**
+Все эндпоинты (кроме `/signup` и `/login`) требуют заголовок:
+
+```
+Authorization: Bearer <token>
+```
+
+Токен выдаётся при логине и действителен 30 дней.
+
+---
+
+## Аутентификация
+
+### Регистрация
+
+```
+POST /auth/signup
+```
+
+**Тело запроса:**
+
+| Поле    | Тип   | Обязательное | Описание             |
+|---------|-------|-------------|----------------------|
+| `email`   | string | Да          | Email (min 2 доменных сегмента, TLD: com/net) |
+| `name`    | string | Да          | Имя пользователя     |
+| `password`| string | Да          | Пароль (6–15 символов) |
+
+**Успешный ответ** (`201 Created`):
 
 ```json
 {
-  "email": "player@example.com",
-  "password": "securePass123"
+  "_id": "664f1a...",
+  "name": "Player1",
+  "email": "player1@example.com",
+  "currentReiting": 800,
+  "gamesPlayed": 0,
+  "wins": 0,
+  "losses": 0,
+  "draws": 0,
+  "maxRating": 800,
+  "token": "eyJhbGciOiJIUzI1NiIs...",
+  "lastColor": "black",
+  "createdAt": "2024-01-15T12:00:00.000Z",
+  "updatedAt": "2024-01-15T12:00:00.000Z"
 }
 ```
 
-Успех (`200`):
+**Ошибки:**
+
+| Статус | Причина |
+|--------|---------|
+| `400`  | JoiError — не заполнены обязательные поля или email некорректен |
+| `409`  | Email уже зарегистрирован |
+
+---
+
+### Логин
+
+```
+POST /auth/login
+```
+
+**Тело запроса:**
+
+| Поле    | Тип   | Обязательное | Описание             |
+|---------|-------|-------------|----------------------|
+| `email`   | string | Да          | Email                |
+| `password`| string | Да          | Пароль (6–15 символов) |
+
+**Успешный ответ** (`200 OK`):
 
 ```json
 {
   "user": {
-    "_id": "64a1b2c3d4e5f6a7b8c9d0e1",
-    "name": "PlayerName",
-    "email": "player@example.com",
+    "_id": "664f1a...",
+    "name": "Player1",
+    "email": "player1@example.com",
     "currentReiting": 800,
-    "token": "eyJhbGciOiJIUzI1NiIs..."
+    "token": "eyJhbGciOiJIUzI1NiIs...",
+    "lastColor": "black",
+    "requireVerificationEmail": false,
+    "verify": true,
+    "createdAt": "2024-01-15T12:00:00.000Z",
+    "updatedAt": "2024-01-15T12:00:00.000Z"
   }
 }
 ```
 
-Ошибки:
-- `400` — невалидные данные
-- `401` — неверный email/password или не подтверждён email
+**Ошибки:**
 
-## Текущий пользователь
+| Статус | Причина |
+|--------|---------|
+| `401`  | Email или пароль неверны |
+| `401`  | Пользователь не подтверждён (если `requireVerificationEmail` и `verify === false`) |
 
-**`GET /auth/current`**
+---
 
-Заголовок: `Authorization: Bearer <token>`
+### Текущий пользователь
 
-Успех (`200`):
+```
+GET /auth/current
+```
+
+**Заголовок:** `Authorization: Bearer <token>`
+
+**Успешный ответ** (`200 OK`):
 
 ```json
 {
-  "user": {
-    "email": "player@example.com",
-    "_id": "64a1b2c3d4e5f6a7b8c9d0e1",
-    "name": "PlayerName",
-    "currentReiting": 800,
-    "token": "eyJhbGciOiJIUzI1NiIs..."
-  }
+  "user": { ...полный объект пользователя... }
 }
 ```
 
-Ошибки:
-- `401` — токен невалиден или отсутствует
-- `404` — пользователь не найден
+**Ошибки:**
 
-## Выход
+| Статус | Причина |
+|--------|---------|
+| `401`  | Не авторизован |
+| `404`  | Пользователь не найден |
 
-**`POST /auth/logout`**
+---
 
-Заголовок: `Authorization: Bearer <token>`
+### Выход
 
-Успех (`200`):
+```
+POST /auth/logout
+```
+
+**Заголовок:** `Authorization: Bearer <token>`
+
+**Успешный ответ** (`200 OK`):
 
 ```json
 {
@@ -115,20 +149,103 @@
 }
 ```
 
-## Удаление аккаунта
+---
 
-**`DELETE /auth/delete`**
+### Удаление аккаунта
 
-Заголовок: `Authorization: Bearer <token>`
+```
+DELETE /auth/delete
+```
 
-Успех (`200`):
+**Заголовок:** `Authorization: Bearer <token>`
+
+**Успешный ответ** (`200 OK`):
 
 ```json
 {
-  "user": { ... }
+  "user": { ...удалённый объект пользователя... }
 }
 ```
 
-Ошибки:
-- `401` — не авторизован
-- `404` — пользователь не найден
+**Ошибки:**
+
+| Статус | Причина |
+|--------|---------|
+| `401`  | Не авторизован |
+| `404`  | Пользователь не найден |
+
+---
+
+## Поиск игры
+
+### Создать/найти комнату поиска
+
+```
+POST /game/find
+```
+
+**Заголовок:** `Authorization: Bearer <token>`
+
+**Тело запроса:**
+
+| Поле          | Тип    | Обязательное | По умолчанию | Описание                  |
+|---------------|--------|-------------|-------------|---------------------------|
+| `typeGame`    | string | Нет         | `"standart"`| Тип игры                  |
+| `timeControl` | number | Нет         | `180`       | Контроль времени (секунды)|
+| `timePluse`   | number | Нет         | `2`         | Плюс времени за ход (сек) |
+
+**Успешный ответ** (`200 OK` или `201 Created`):
+
+```json
+{
+  "message": "Found existing search room" | "Search room created",
+  "game": { ...объект Game... }
+}
+```
+
+**Поведение:**
+
+- Если существует открытая игра с такими же параметрами (`statusGame: "open"`, `result: "pending"`, совпадающие `typeGame`, `timeControl`, `timePluse`) — назначается второй игрок (`ownerBlack`), статус меняется на `"close"`.
+- Если нет — создаётся новая игра с `statusGame: "open"`.
+
+При изменении статуса на `"close"` REST-эндпоинт возвращает обновлённую игру. После этого при подключении обоих игроков к WebSocket комнате сервер автоматически рассылает событие `gameStart` обоим клиентам с данными о соперниках и начальной позиции.
+
+**Ошибки:**
+
+| Статус | Причина |
+|--------|---------|
+| `400`  | JoiError — невалидные входные данные |
+| `500`  | Ошибка сервера при создании |
+
+---
+
+### Отменить поиск
+
+```
+POST /game/cancel
+```
+
+**Заголовок:** `Authorization: Bearer <token>`
+
+**Тело запроса:**
+
+| Поле     | Тип    | Обязательное | Описание                          |
+|----------|--------|-------------|-----------------------------------|
+| `gameId` | string | Да          | `_id` незапущенной игры (`statusGame: "open"`, `result: "pending"`) |
+
+**Успешный ответ** (`200 OK`):
+
+```json
+{
+  "message": "Search cancelled, game deleted",
+  "gameId": "664f1a..."
+}
+```
+
+**Ошибки:**
+
+| Статус | Причина |
+|--------|---------|
+| `400`  | `gameId` не указан |
+| `404`  | Игра не найдена или уже начата |
+| `500`  | Ошибка сервера |
