@@ -2,6 +2,8 @@ import mongoose, { type Connection } from "mongoose";
 
 const { DB_HOST } = process.env as { DB_HOST: string };
 
+// Очищаем DB_HOST от пробелов, переносов и query-параметров после знака "?"
+const cleanDbHost = DB_HOST.replace(/\s+/g, "").split("?")[0];
 /**
  * Центральный модуль подключений к MongoDB.
  *
@@ -19,24 +21,24 @@ let gameDb: Connection;
 
 const initConnections = (): void => {
   if (initialized) return;
-  if (!DB_HOST) {
+  if (!cleanDbHost) {
     console.error(
       "[DB] ❌ DB_HOST is missing in env, cannot connect databases",
     );
     throw new Error("DB_HOST is missing");
   }
 
-  console.log("[DB] 🔌 Connecting to MongoDB...", DB_HOST);
+  console.log("[DB] 🔌 Connecting to MongoDB...", cleanDbHost);
   console.log("[DB] users_db, game_db");
 
   // Создаём два независимых соединения — базы users_db и game_db.
   // Mongoose сам поддерживает много соединений на одном DB_HOST.
   // Если в API.DB_HOST указан с '?database=users_db' (так бывает в Mongo Web Client),
 
-  usersDb = mongoose.createConnection(DB_HOST, {
+  usersDb = mongoose.createConnection(cleanDbHost, {
     dbName: "users_db",
   });
-  gameDb = mongoose.createConnection(DB_HOST, {
+  gameDb = mongoose.createConnection(cleanDbHost, {
     dbName: "game_db",
   });
 
