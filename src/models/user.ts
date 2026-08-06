@@ -1,10 +1,8 @@
-import mongoose, { Schema, type ConnectOptions } from "mongoose";
+import { Schema } from "mongoose";
+import { getUsersDb } from "../db/connections.js";
 
-const { DB_HOST } = process.env as { DB_HOST: string };
-
-const usersDbConnection = mongoose.createConnection(DB_HOST, {
-  dbName: "users_db",
-} as ConnectOptions);
+// Используем централизованное соединение users_db из db/connections.ts —
+// модель НЕ открывает своё подключение (всего один connection на UsersDB).
 
 const userSchema = new Schema(
   {
@@ -69,4 +67,4 @@ const userSchema = new Schema(
   },
 );
 
-export default usersDbConnection.model("user", userSchema);
+export default getUsersDb().model("user", userSchema);

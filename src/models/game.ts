@@ -1,10 +1,8 @@
-import mongoose, { Schema, type ConnectOptions } from "mongoose";
+import { Schema } from "mongoose";
+import { getGamesDb } from "../db/connections.js";
 
-const { DB_HOST } = process.env as { DB_HOST: string };
-
-const gameDbConnection = mongoose.createConnection(DB_HOST, {
-  dbName: "game_db",
-} as ConnectOptions);
+// Используем централизованное соединение game_db из db/connections.ts —
+// модель НЕ открывает своё подключение (всего один connection на GameDB).
 
 const gameSchema = new Schema(
   {
@@ -39,7 +37,18 @@ const gameSchema = new Schema(
     },
     endReason: {
       type: String,
-      enum: ["", "checkmate", "stalemate", "threefold", "fifty_move", "insufficient_material", "timeout", "resignation", "agreed_draw", "abandonment"],
+      enum: [
+        "",
+        "checkmate",
+        "stalemate",
+        "threefold",
+        "fifty_move",
+        "insufficient_material",
+        "timeout",
+        "resignation",
+        "agreed_draw",
+        "abandonment",
+      ],
       default: "",
     },
     pgn: { type: String, default: "" },
@@ -70,4 +79,4 @@ const gameSchema = new Schema(
   },
 );
 
-export default gameDbConnection.model("game", gameSchema);
+export default getGamesDb().model("game", gameSchema);

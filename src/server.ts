@@ -8,6 +8,7 @@ import { Request, Response, NextFunction } from "express";
 import { app, server } from "./config/serverConfig.js";
 import routerAuth from "./routers/auth.routes.js";
 import routerGame from "./routers/game.routes.js";
+import { connectDatabases } from "./db/connections.js";
 
 const { PORT = 5000 } = process.env;
 
@@ -21,7 +22,15 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
 app.use((req: Request, res: Response, next: NextFunction) => {
   const originalJson = res.json.bind(res);
   res.json = (body: unknown) => {
-    console.log("[Server] 📤 HTTP", req.method, req.originalUrl, "| status:", res.statusCode, "| body:", JSON.stringify(body));
+    console.log(
+      "[Server] 📤 HTTP",
+      req.method,
+      req.originalUrl,
+      "| status:",
+      res.statusCode,
+      "| body:",
+      JSON.stringify(body),
+    );
     return originalJson(body);
   };
   next();
@@ -44,11 +53,29 @@ app.use(
   ) => {
     const status = err.status || 500;
     const message = err.message || "Server error";
-    console.log("[Server] ⚠️ Error", status, "|", message, "|", req.method, req.originalUrl);
+    console.log(
+      "[Server] ⚠️ Error",
+      status,
+      "|",
+      message,
+      "|",
+      req.method,
+      req.originalUrl,
+    );
     res.status(status).json({ message });
   },
 );
 
-server.listen(PORT, () => {
-  console.log("[Server] 🚀 Server started on port", PORT);
-});
+// Сначала ждём подключения к DB — модели (UserModel/GameModel через
+// db/connections.js) уже инициализированы и готовы. Если MongoDB не поднимется —
+// сервер не запустится (graceful failure с понятным логом).
+connectDatabases()
+  .then(() => {
+    server.listen(PORT, () => {
+      console.log("[Server] 🚀 Server started on port", PORT);
+    });
+  })
+  .catch((err: Error) => {
+    console.error("[Server] ❌ Failed to connect databases:", err);
+    process.exit(1);
+  });
