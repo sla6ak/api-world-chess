@@ -899,6 +899,9 @@ class ChessRoom extends Room {
         });
 
         // Обновляем статистику и рейтинг игроков в MongoDB
+        // ratingChangeDelta — разница currentReiting(p) до/после victory/loss для каждого юзера.
+        // По завершении вычислим и перейдём broadcast gameOver с дельтами.
+        let ratingChangeDelta: { wite: number; black: number } = { wite: 0, black: 0 };
         try {
             const game = await GameModel.findById(this.state.idGame);
             if (game && game.ownerWite && game.ownerBlack) {
@@ -943,6 +946,12 @@ class ChessRoom extends Room {
                         black.name,
                         black.currentReiting
                     );
+
+                    // Сохраняем дельты: newRating - oldRating.
+                    ratingChangeDelta = {
+                        wite: Math.round(Number(white.currentReiting) - Number(wOld)),
+                        black: Math.round(Number(black.currentReiting) - Number(bOld)),
+                    };
                 }
             }
         } catch (e) {
@@ -955,7 +964,9 @@ class ChessRoom extends Room {
                 result: info.result,
                 winnerRole: info.winnerRole,
                 endReason: info.endReason,
-                ratingChange: 0, // TODO: можно вернуть фактическое изменение для UI
+                // Рейтинг change как MAP: { wite: delta, black: delta }.
+                // Клиент берёт по роли (myRole) из colorGame или из room state.
+                ratingChange: ratingChangeDelta,
             },
         });
 
