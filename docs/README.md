@@ -1,117 +1,49 @@
-# Backend Documentation — api-world-chess
+# World Chess — Technical Architecture & Logic Documentation
 
-> Серверная часть шахматной платформы Chess World — Node.js + Express + Colyseus + MongoDB.
+Общая техническая документация шахматного веб-приложения: клиент (`app-world-chess`) + сервер (`api-world-chess`).
 
-## Содержание
+Фокус документации — **бизнес-логика, сетевое взаимодействие (REST + WebSocket), игровое состояние (Redux / In-Memory / MongoDB), таймеры, рейтинг**, а также реестр известных багов и неоптимизированных мест. Общие UI-компоненты (кнопки, модалки, верстка) намеренно не описываются.
 
-| Документ | Описание |
-|----------|----------|
-| [README.md](./README.md) | Этот файл — оглавление и быстрый старт |
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | Архитектура сервера, слои, потоки данных |
-| [API.md](./API.md) | REST API эндпоинты |
-| [WEBSOCKET.md](./WEBSOCKET.md) | WebSocket-протокол, Colyseus Room, события |
-| [DATABASE.md](./DATABASE.md) | Модели MongoDB, подключения |
-| [CONFIG.md](./CONFIG.md) | Конфигурация, переменные окружения |
-| [GAME.md](./GAME.md) | Логика игрового процесса |
+> ⚠️ Локальные README внутри `app-world-chess/` и `api-world-chess/` **устарели** и не являются источником истины. Актуальная документация — здесь.
 
 ---
 
-## Быстрый старт
+## Карта документов
 
-```bash
-cd api-world-chess
+| # | Документ | Содержание |
+|---|----------|-----------|
+| 1 | [01-tech-stack.md](./01-tech-stack.md) | Полный стек библиотек Frontend/Backend со ссылками на официальные документации |
+| 2 | [02-architecture.md](./02-architecture.md) | Дерево проекта с пояснениями модулей, Mermaid-схемы взаимодействия `Client ↔ Colyseus ↔ GameManager ↔ MongoDB`, модель состояний |
+| 3 | [03-matchmaking.md](./03-matchmaking.md) | Поиск игры: REST-заявки, матчинг, JWT-авторизация WS, события `opponent_joined` / `gameStart`, редирект на `/game` |
+| 4 | [04-clock.md](./04-clock.md) | Шахматные часы: серверные тики `setInterval`, дельта по `Date.now()`, инкремент, гибридная клиентская модель, баг `00:00` |
+| 5 | [05-move-flow.md](./05-move-flow.md) | Цикл хода: клиентская блокировка → `make_move` → валидация chess.js → `move_made`, разбор бага «Игра уже завершена» |
+| 6 | [06-game-over-rating.md](./06-game-over-rating.md) | Все сценарии завершения (мат/пат/ничьи/resign/timeout/abandonment), Elo K=32, финализация в MongoDB |
+| 7 | [07-known-issues.md](./07-known-issues.md) | Сводный реестр багов, уязвимостей и узких мест с приоритетами |
 
-# Установка зависимостей
-npm install
+---
 
-# Копирование шаблона окружения
-cp .env.template .env
-# Отредактировать .env: DB_HOST, JWT_SECRET_KEY
-
-# Разработка (nodemon + tsx)
-npm run dev
-
-# Продакшн
-npm run start
-```
-
-Сервер запускается на порту `5000` (по умолчанию).
-
-## Технологический стек
-
-| Компонент | Технология | Версия | Назначение |
-|------------|-----------|--------|------------|
-| Runtime | Node.js | ≥ 18 LTS | Серверная среда |
-| HTTP-фреймворк | Express | 4.17+ | REST API |
-| WebSocket-фреймворк | Colyseus | 0.16.x | Real-time комнаты |
-| Схема сериализации | @colyseus/schema | 3.0.76 | Сериализация состояния |
-| WebSocket-транспорт | @colyseus/ws-transport | 0.16.x | WS-транспорт |
-| База данных | MongoDB + Mongoose | ≥ 6.0 | Пользователи, игры |
-| Аутентификация | JWT + bcrypt | — | Токены, хеширование паролей |
-| Валидация | Joi | ≥ 17.x | Валидация входных данных |
-| Логирование | Morgan + кастомный logger | — | HTTP и ошибки WS |
-
-## Структура проекта
+## Состав репозитория
 
 ```
-api-world-chess/
-├── src/
-│   ├── server.ts             # Точка входа: Express + Colyseus
-│   ├── config/
-│   │   └── serverConfig.ts   # CORS, HTTP-сервер, Colyseus настройки
-│   ├── controllers/
-│   │   ├── user.ts           # Логика пользователей (CRUD)
-│   │   └── game.ts           # Логика игровых сессий (REST)
-│   ├── middleware/
-│   │   ├── authenticate.ts   # JWT для REST
-│   │   ├── authenticateWs.ts # JWT для WebSocket (util)
-│   │   └── userValidation.ts # Joi валидация запросов
-│   ├── models/
-│   │   ├── user.ts           # Модель User (users_db)
-│   │   └── game.ts           # Модель Game (game_db)
-│   ├── rooms/
-│   │   └── ChessRoom.ts      # Colyseus Room — игровая логика
-│   ├── routers/
-│   │   ├── auth.routes.ts    # Маршруты /auth/*
-│   │   └── game.routes.ts    # Маршруты /game/*
-│   ├── errors/
-│   │   ├── createError.ts    # Фабрика ошибок
-│   │   ├── index.ts          # Экспорт ошибок
-│   │   └── statusCode.ts     # HTTP статус-коды
-│   ├── responses/
-│   │   ├── defaultResGame.ts # Шаблон игрового ответа
-│   │   ├── defaultResponseData.ts # Шаблон стандартного ответа
-│   │   └── index.ts          # Экспорт ответов
-│   ├── utils/
-│   │   ├── index.ts          # Экспорт утилит
-│   │   └── logger.ts         # Файловый логгер ошибок WS
-│   └── types/
-│       └── express.d.ts      # Расширения Express types
-├── docs/
-│   ├── README.md
-│   ├── ARCHITECTURE.md
-│   ├── API.md
-│   ├── WEBSOCKET.md
-│   ├── DATABASE.md
-│   ├── CONFIG.md
-│   └── GAME.md
-├── logs/
-│   ├── errors.log
-│   └── ws-errors.log
-├── .env
-├── .env.template
-├── package.json
-├── tsconfig.json
-└── .gitignore
+chess/
+├── app-world-chess/   # Frontend: React 18 + Redux Toolkit + colyseus.js (порт 3000)
+├── api-world-chess/   # Backend: Express + Colyseus 0.16 + Mongoose (порт 5000)
+├── docs/              # ← Эта документация
+├── dev.sh             # Локальный лаунчер обоих процессов (через dev-config.json)
+└── TASKS.md           # ТЗ, по которому собрана эта документация
 ```
 
-## Архитектурные принципы
+## Ключевые факты (TL;DR)
 
-- **Авторитарный сервер** — сервер валидирует каждый ход, рассылает обновления
-- **Colyseus Rooms** — каждая партия изолирована в отдельной комнате
-- **Две базы данных** — `users_db` (пользователи) и `game_db` (игры) на одном MongoDB
-- **JWT аутентификация** — токен действителен 30 дней, передаётся в `Authorization: Bearer <token>`
-- **In-memory state + MongoDB persistence** — игровое состояние в памяти, сохранение в БД при завершении/отключении
-- **Автоматический старт игры** — при подключении второго игрока статус меняется на `"close"` и обоим рассылается `gameStart`
-- **Origin verification** — Colyseus проверяет `Origin` заголовок при WebSocket handshake
-- **Joi валидация** — все входные данные REST-эндпоинтов валидируются через Joi
+- **Транспорт игры — Colyseus 0.16** (`WebSocketTransport`), а не чистый Socket.io. Одна комната `chess_room` на партию, `filterBy(["gameId"])`, `maxClients = 2`.
+- **Матчмейкинг — REST, не WS**: `POST /game/find` создаёт/дозаполняет документ в MongoDB, затем клиент подключается к WS-комнате по `gameId`.
+- **Сервер авторитетен** по позиции, очерёдности и часам. Клиент держит локальное зеркало `chess.js` только для подсветки ходов и оптимистичного рендера, с жёстким откатом по `move_error`.
+- **Игровое состояние живёт в памяти** (`GameManager`, тик 1 сек), MongoDB получает снапшоты при дисконнекте и финале — не на каждый ход.
+- **Нативного рейтинг-диапазона в матчмейкинге нет**: матчинг идёт по точному совпадению `typeGame + timeControl + timePluse`. См. [03-matchmaking.md](./03-matchmaking.md#-известные-проблемы).
+- **Реестр открытых проблем** — в [07-known-issues.md](./07-known-issues.md) (критично: legacy-хендлер `gameMove` без валидации, «вечные» paused-партии, single-session JWT).
+
+## Канонические термины (важно для чтения кода)
+
+В кодовой базе исторически закреплена орфография **`wite`** (не `white`) в идентификаторах: `playerWite`, `ownerWite`, `timeWite`, `reitingWite`, роль `"wite"`. При чтении/написании кода использовать как есть — переименование потребует миграции документов MongoDB. Аналогично: `reiting` (не `rating`), `timePluse` (не `timePlus`).
+
+Все временные значения в системе — **секунды** (`timeControl`, `timePluse`, `timeWite`, `timeBlack`). Legacy-записи в БД могли хранить минуты; на границах системы стоит эвристическая нормализация «`< 60` → это минуты» (см. [04-clock.md](./04-clock.md#legacy-нормализация-минуты--секунды)).

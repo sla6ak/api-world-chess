@@ -14,6 +14,9 @@ const { DB_HOST } = process.env as { DB_HOST: string };
 
 let initialized = false;
 
+let usersDb: Connection;
+let gameDb: Connection;
+
 const initConnections = (): void => {
   if (initialized) return;
   if (!DB_HOST) {
@@ -51,9 +54,6 @@ const initConnections = (): void => {
 
 // Лениво инициализируем при первом импорте модуля (доступно на top-level)
 initConnections();
-
-let usersDb: Connection;
-let gameDb: Connection;
 
 export const getUsersDb = (): Connection => usersDb;
 export const getGamesDb = (): Connection => gameDb;
