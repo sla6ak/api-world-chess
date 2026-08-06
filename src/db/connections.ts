@@ -1,4 +1,4 @@
-import mongoose, { type Connection, type ConnectOptions } from "mongoose";
+import mongoose, { type Connection } from "mongoose";
 
 const { DB_HOST } = process.env as { DB_HOST: string };
 
@@ -32,15 +32,11 @@ const initConnections = (): void => {
   // Создаём два независимых соединения — базы users_db и game_db.
   // Mongoose сам поддерживает много соединений на одном DB_HOST.
   // Если в API.DB_HOST указан с '?database=users_db' (так бывает в Mongo Web Client),
-  // берём более dbName-параметру (имитируем connectOptions).
-  const connectionOpts: ConnectOptions = {};
 
   usersDb = mongoose.createConnection(DB_HOST, {
-    ...connectionOpts,
     dbName: "users_db",
   });
   gameDb = mongoose.createConnection(DB_HOST, {
-    ...connectionOpts,
     dbName: "game_db",
   });
 
