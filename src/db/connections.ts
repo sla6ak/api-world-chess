@@ -3,7 +3,7 @@ import mongoose, { type Connection } from "mongoose";
 const { DB_HOST } = process.env as { DB_HOST: string };
 
 // Очищаем DB_HOST от пробелов, переносов и query-параметров после знака "?"
-const cleanDbHost = DB_HOST.replace(/\s+/g, "").split("?")[0];
+const cleanDbHost = DB_HOST.trim().split("?")[0].replace(/\/+$/, "");
 /**
  * Центральный модуль подключений к MongoDB.
  *
@@ -31,16 +31,12 @@ const initConnections = (): void => {
   console.log("[DB] 🔌 Connecting to MongoDB...", cleanDbHost);
   console.log("[DB] users_db, game_db");
 
-  // Создаём два независимых соединения — базы users_db и game_db.
-  // Mongoose сам поддерживает много соединений на одном DB_HOST.
-  // Если в API.DB_HOST указан с '?database=users_db' (так бывает в Mongo Web Client),
+  // 2. Явно добавляем имя базы к URL
+  const usersUri = `${cleanDbHost}/users_db`;
+  const gameUri = `${cleanDbHost}/game_db`;
 
-  usersDb = mongoose.createConnection(cleanDbHost, {
-    dbName: "users_db",
-  });
-  gameDb = mongoose.createConnection(cleanDbHost, {
-    dbName: "game_db",
-  });
+  usersDb = mongoose.createConnection(usersUri);
+  gameDb = mongoose.createConnection(gameUri);
 
   usersDb.on("connected", () => console.log("[DB] ✅ users_db connected"));
   usersDb.on("error", (e) => console.error("[DB] ❌ users_db error:", e));
