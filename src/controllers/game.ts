@@ -314,6 +314,51 @@ class Game {
     }
 
     /**
+     * GET /game/history?limit=100 — Останні завершені партії поточного користувача
+     * (ігри не завершённые (result='pending') НЕ вертаются).
+     * Сортировка: свежие сверху (createdAt desc).
+     */
+    async getGameHistory(req: Request, res: Response): Promise<void> {
+        const userId = req.user?._id;
+
+        const limitQuery = Number(req.query.limit);
+        const limit = Number.isFinite(limitQuery) && limitQuery > 0 && limitQuery <= 100
+            ? Math.floor(limitQuery)
+            : 100;
+
+        console.log("[Game:getGameHistory] 📥 History fetch | userId:", userId, "| limit:", limit);
+
+        try {
+            // Берём все завершённые партии игрока (и как белых, и как чёрных),
+            // сортируем от свежих к старым, ограничиваем limit.
+            const games = await GameModel.find(
+                {
+                    $or: [
+                        { ownerWite: userId },
+                        { ownerBlack: userId },
+                    ],
+                    // '1-0', '0-1', '0.5-0.5' — всё completed. pending НЕ берём, т.к. это open/in-progress.
+                    result: { $in: ["1-0", "0-1", "0.5-0.5"] },
+                },
+                // Берём только нужные поля — клиенту НЕ нужен pgn, moveHistory, timers и т.п.
+                "statusGame typeGame timeControl timePluse result endReason ownerWite ownerBlack nameWite reitingWite nameBlack reitingBlack createdAt"
+            )
+                .sort({ createdAt: -1 })
+                .limit(limit)
+                .lean();
+
+            console.log("[Game:getGameHistory] ✅ Returning", games.length, "completed games for user", userId);
+            res.json({
+                games,
+                total: games.length,
+            });
+        } catch (error) {
+            logError("getGameHistory", error);
+            res.status(500).json({ message: "Failed to fetch game history" });
+        }
+    }
+
+    /**
      * POST /game/:gameId/result — Збереження результату гри.
      *
      * Викликається після завершення партії.

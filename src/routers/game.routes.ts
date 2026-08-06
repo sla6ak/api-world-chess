@@ -17,4 +17,8 @@ router.get("/active", authenticate, game.getActiveGame);
 router.post("/cancel", authenticate, game.cancelSearchRoom);
 router.post("/:gameId/result", authenticate, game.submitGameResult);
 
+// История завершённых партий текущего пользователя (до 100 штук, свежие сверху).
+// Путь "/history" важно ставить ЯВНЫМ (не в параметре "/:gameId"), чтобы Express обрабатывал его до варианта с gameId.
+router.get("/history/last", authenticate, game.getGameHistory);
+
 export default router;
