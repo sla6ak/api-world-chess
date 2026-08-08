@@ -72,6 +72,10 @@ const gameSchema = new Schema(
     timeWite: { type: Number, default: 180 },
     timeBlack: { type: Number, default: 180 },
     paused: { type: Boolean, default: false },
+    // Дельта рейтинга за эту партию (newRating - oldRating) для белых и чёрных.
+    // Используется фронтендом для отображения «+N / -N» в истории партий.
+    ratingChangeWite: { type: Number, default: 0 },
+    ratingChangeBlack: { type: Number, default: 0 },
   },
   {
     versionKey: false,

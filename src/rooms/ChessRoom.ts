@@ -970,13 +970,17 @@ class ChessRoom extends Room {
             },
         });
 
-        await this.saveGameToDb(false, info);
+        await this.saveGameToDb(false, info, ratingChangeDelta);
         this.gm?.dispose();
         this.gm = null;
         this.finalizing = false;
     }
 
-    private async saveGameToDb(paused: boolean, info?: GameOverInfo): Promise<void> {
+    private async saveGameToDb(
+        paused: boolean,
+        info?: GameOverInfo,
+        ratingChangeDelta?: { wite: number; black: number },
+    ): Promise<void> {
         if (!this.gm) return;
 
         const snapshot = this.gm.snapshot(paused);
@@ -997,6 +1001,11 @@ class ChessRoom extends Room {
             update.result = info.result;
             update.endReason = info.endReason;
             update.dateGameOver = new Date();
+            // Сохраняем дельту рейтинга за эту партию — фронтенд использует её для «+N / -N» в истории.
+            if (ratingChangeDelta) {
+                update.ratingChangeWite = ratingChangeDelta.wite;
+                update.ratingChangeBlack = ratingChangeDelta.black;
+            }
         } else {
             update.endReason = "";
         }
